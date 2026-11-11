@@ -7,3 +7,9 @@ __pycache__/
 *.db-shm
 *.db-wal
 openapi.json
+
+# data (plan 16.6)
+data/schedule/synth/*
+data/moderation/raw/*
+*.gguf
+lora-*/

@@ -47,6 +47,18 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 | `ml/common/dateparse_ko/`, `backend/tests/test_dateparse.py` | 파트 4 |
 | `backend/app/schedule/`, `ml/schedule/` | 파트 1 |
 
+## 일정 AI 학습/평가
+
+| 단계 | 명령 |
+|---|---|
+| 합성 대화 생성 (Claude API, `ANTHROPIC_API_KEY` 필요) | `uv run --group ml python ml/schedule/synth/generate.py --n 20 --out data/schedule/synth/try.jsonl` |
+| LoRA 학습 (Colab) | `ml/schedule/train_lora.py` 맨 위 주석 참고 |
+| 예측 | `uv run --group ml python eval/schedule/run.py <testset> preds.jsonl --target server\|claude` |
+| 채점 | `uv run python eval/schedule/score.py <testset> preds.jsonl --label v1` → `eval/reports/schedule.csv` |
+
+데이터 한 줄 형식: `ScheduleRequest`(`ref_datetime`, `participants`, `dialogue`, `existing_events`) + 정답 `events`(기획서 8.2) + `type`(유형별 점수용).
+학습 프롬프트와 서빙 프롬프트는 같은 `app/schedule/prompt.py`를 쓴다.
+
 서버는 워커 1개로 띄운다 (WebSocket 허브와 디바운스가 프로세스 메모리에 있음).
 
 기획서: [plan](https://github.com/ai-class-project-2026/plan)
