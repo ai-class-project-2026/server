@@ -151,7 +151,9 @@ class AISuggestion(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     channel_id: Mapped[int] = _fk("channels.id")
     payload_json: Mapped[dict] = mapped_column(JSON)
-    action: Mapped[SuggestionAction | None] = mapped_column(_enum(SuggestionAction))  # null = pending
+    action: Mapped[SuggestionAction | None] = mapped_column(
+        _enum(SuggestionAction)
+    )  # null = pending
     model_version: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[dt.datetime] = _now()
 

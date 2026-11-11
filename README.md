@@ -5,7 +5,7 @@
 ## 실행
 
 ```sh
-cp .env.example .env
+cp .env.example .env   # JWT_SECRET 채우기 (32자 이상)
 uv sync
 make migrate   # alembic upgrade head
 make dev       # http://localhost:8000/docs

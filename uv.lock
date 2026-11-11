@@ -609,6 +609,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/d4/0f8481baa50f75db3bb19a0df79fe19615e66eccfc3afb0b946dcb8791b3/google_auth-2.62.2-py3-none-any.whl", hash = "sha256:e9bcdb0679b6a4369ac327c5c59f06d92f7b4cd2624e7100294c14632f55a36b", size = 270150, upload-time = "2026-11-10T15:50:53.408Z" },
 ]
 
+[package.optional-dependencies]
+requests = [
+    { name = "requests" },
+]
+
 [[package]]
 name = "googleapis-common-protos"
 version = "1.76.0"
@@ -1666,7 +1671,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "fastapi", extra = ["standard"] },
-    { name = "google-auth" },
+    { name = "google-auth", extra = ["requests"] },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
@@ -1684,7 +1689,7 @@ requires-dist = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "fastapi", extras = ["standard"] },
-    { name = "google-auth" },
+    { name = "google-auth", extras = ["requests"] },
     { name = "pwdlib", extras = ["argon2"] },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
