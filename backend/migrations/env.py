@@ -22,7 +22,9 @@ if config.config_file_name is not None:
 from app.config import settings  # noqa: E402
 from app.db.models import Base  # noqa: E402
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Tests pass their own URL; otherwise use DATABASE_URL.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.database_url)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

@@ -9,7 +9,7 @@ engine = create_async_engine(settings.database_url)
 
 
 @event.listens_for(engine.sync_engine, "connect")
-def _sqlite_pragmas(dbapi_conn, _):
+def sqlite_pragmas(dbapi_conn, _):
     # WAL: reads don't block the single writer; SQLite ignores FKs unless asked.
     cur = dbapi_conn.cursor()
     cur.execute("PRAGMA journal_mode=WAL")
