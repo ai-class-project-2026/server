@@ -56,7 +56,16 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 | 예측 | `uv run --group ml python eval/schedule/run.py <testset> preds.jsonl --target server\|claude` |
 | 채점 | `uv run python eval/schedule/score.py <testset> preds.jsonl --label v1` → `eval/reports/schedule.csv` |
 
-데이터 한 줄 형식: `ScheduleRequest`(`ref_datetime`, `participants`, `dialogue`, `existing_events`) + 정답 `events`(기획서 8.2) + `type`(유형별 점수용).
+## 욕설 AI 학습/평가
+
+| 단계 | 명령 |
+|---|---|
+| 증강 | `ml/moderation/augment/` (규칙 추가 + `backend/tests/test_augment.py`) |
+| 학습 (Colab) | `ml/moderation/train.py` 맨 위 주석 참고 |
+| ONNX 변환 | `ml/moderation/export_onnx.py` → 서버에 `MODERATION_ONNX_PATH` 설정, `uv sync --group onnx` |
+| 채점 | `uv run python eval/moderation/score.py data/moderation/test_C_human/sample.jsonl --label dict-v0` |
+
+일정 데이터 한 줄 형식: `ScheduleRequest`(`ref_datetime`, `participants`, `dialogue`, `existing_events`) + 정답 `events`(기획서 8.2) + `type`(유형별 점수용).
 학습 프롬프트와 서빙 프롬프트는 같은 `app/schedule/prompt.py`를 쓴다.
 
 서버는 워커 1개로 띄운다 (WebSocket 허브와 디바운스가 프로세스 메모리에 있음).

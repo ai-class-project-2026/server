@@ -11,6 +11,7 @@ dependencies = [
     "pyjwt",
     "pwdlib[argon2]",
     "google-auth[requests]",
+    "numpy>=2.5.4",
 ]
 
 [dependency-groups]
@@ -20,6 +21,10 @@ dev = [
 ]
 ml = [
     "anthropic>=2.8.0",
+]
+onnx = [
+    "onnxruntime>=1.31.1",
+    "tokenizers>=0.23.3",
 ]
 
 [tool.pytest.ini_options]
