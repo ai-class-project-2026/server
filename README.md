@@ -27,7 +27,7 @@ make dev       # http://localhost:8000/docs
 make migrate && make seed     # minjun@demo.com … haeun@demo.com / demo1234
 ```
 
-AI 카드까지 보려면 OpenAI 호환 LLM 서버를 붙인다. 학습 전에는 Ollama 기본 모델로도 흐름은 돈다:
+AI 카드까지 보려면 OpenAI 호환 LLM 서버를 붙인다. 학습 전에는 Ollama의 아무 instruct 모델로도 흐름은 돈다 (M3 16GB에서 7GB급 모델은 카드까지 약 70초, 3B급이 시연에 맞다):
 
 ```sh
 ollama pull qwen2.5:3b
