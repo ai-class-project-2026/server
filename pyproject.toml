@@ -1,0 +1,28 @@
+[project]
+name = "teamplmate-server"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]",
+    "sqlalchemy[asyncio]",
+    "aiosqlite",
+    "alembic",
+    "pydantic-settings",
+    "pyjwt",
+    "pwdlib[argon2]",
+    "google-auth",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
+
+[tool.ruff]
+src = ["backend"]
+extend-exclude = ["backend/migrations"]
