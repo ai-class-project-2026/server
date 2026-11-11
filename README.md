@@ -27,14 +27,18 @@ make dev       # http://localhost:8000/docs
 make migrate && make seed     # minjun@demo.com … haeun@demo.com / demo1234
 ```
 
-AI 카드까지 보려면 OpenAI 호환 LLM 서버를 붙인다. 학습 전에는 Ollama의 아무 instruct 모델로도 흐름은 돈다 (M3 16GB에서 7GB급 모델은 카드까지 약 70초, 3B급이 시연에 맞다):
+AI 카드까지 보려면 OpenAI 호환 LLM 서버를 붙인다. 학습 전에는 Ollama 기본 모델로 흐름을 돌린다:
 
 ```sh
 ollama pull qwen2.5:3b
 SCHEDULE_LLM_URL=http://localhost:11434 SCHEDULE_LLM_MODEL=qwen2.5:3b make dev
 ```
 
-민준으로 로그인 → `일반` 채널에 "그럼 목 7시 디코로 확정" → 디바운스 후 카드가 뜬다.
+민준으로 로그인 → `일반` 채널에 "그럼 목 7시 디코로 확정" → 디바운스(10초) 후 카드가 뜬다.
+
+2026-11-11 측정 (M3 16GB, qwen2.5:3b 학습 전, 날짜 주석은 오늘/내일만 지원하는 상태):
+응답 3.2초(웜), 확정·19:00은 맞췄지만 "목"을 화요일로 계산하고 "디코"를 "디노코"로 적었다.
+가설 ②(상대 날짜 오류)의 첫 사례 — dateparse_ko가 요일을 풀어주면 고쳐져야 할 부분.
 
 ## API
 
