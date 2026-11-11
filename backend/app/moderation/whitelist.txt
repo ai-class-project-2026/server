@@ -1,0 +1,3 @@
+# normal words that contain a bad word
+시발점
+시발역

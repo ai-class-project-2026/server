@@ -12,5 +12,16 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # /moderate and /schedule: required X-API-Key when set (eval scripts, Discord bot)
+    ai_api_key: str = ""
+    # Schedule LLM behind an OpenAI-compatible server (llama.cpp, vLLM, Ollama...).
+    # Empty = schedule AI off; chat still works.
+    schedule_llm_url: str = ""
+    schedule_llm_model: str = "teamplmate-schedule"
+    schedule_model_version: str = "v0"
+    schedule_debounce_seconds: float = 10
+    # Exported KcELECTRA (part 3). Empty = dictionary filter only.
+    moderation_onnx_path: str = ""
+
 
 settings = Settings()

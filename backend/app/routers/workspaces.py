@@ -1,29 +1,14 @@
 import secrets
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import CurrentUser
 from app.db.models import Channel, Member, Role, User, Workspace
-from app.db.session import get_session
+from app.deps import Session, require_member
 from app.schemas import MemberOut, WorkspaceCreate, WorkspaceOut, WorkspaceUpdate
 
 router = APIRouter(tags=["workspaces"])
-Session = Annotated[AsyncSession, Depends(get_session)]
-
-
-async def require_member(
-    session: AsyncSession, workspace_id: int, user: User, role: Role | None = None
-) -> Member:
-    """404 for non-members so workspace ids don't leak; 403 if the role is too low."""
-    member = await session.get(Member, (workspace_id, user.id))
-    if member is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workspace not found")
-    if role is Role.owner and member.role is not Role.owner:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Owner only")
-    return member
 
 
 @router.post("/workspaces", response_model=WorkspaceOut, status_code=201)
