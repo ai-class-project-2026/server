@@ -21,6 +21,21 @@ make dev       # http://localhost:8000/docs
 - 모델은 `backend/app/db/models.py`. SQLite라 리스트 필드는 `ARRAY` 대신 `JSON`으로.
 - DB를 바꾸려면 `DATABASE_URL`만 바꾸면 된다.
 
+## 시연
+
+```sh
+make migrate && make seed     # minjun@demo.com … haeun@demo.com / demo1234
+```
+
+AI 카드까지 보려면 OpenAI 호환 LLM 서버를 붙인다. 학습 전에는 Ollama 기본 모델로도 흐름은 돈다:
+
+```sh
+ollama pull qwen2.5:3b
+SCHEDULE_LLM_URL=http://localhost:11434 SCHEDULE_LLM_MODEL=qwen2.5:3b make dev
+```
+
+민준으로 로그인 → `일반` 채널에 "그럼 목 7시 디코로 확정" → 디바운스 후 카드가 뜬다.
+
 ## API
 
 `make dev` 후 http://localhost:8000/docs 에서 전부 확인하고 바로 호출해볼 수 있다.

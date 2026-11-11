@@ -15,3 +15,6 @@ revision:
 
 openapi:
 	JWT_SECRET=$${JWT_SECRET:-openapi-dump-only-placeholder-secret} uv run python -c "import json,sys; sys.path[:0]=['backend','ml/common']; from app.main import app; print(json.dumps(app.openapi()))" > openapi.json
+
+seed:
+	PYTHONPATH=backend:ml/common uv run python backend/seed.py

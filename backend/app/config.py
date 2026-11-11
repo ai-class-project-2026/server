@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     schedule_llm_url: str = ""
     schedule_llm_model: str = "teamplmate-schedule"
     schedule_model_version: str = "v0"
+    schedule_llm_timeout: float = 30  # runs in the background, but keep demos snappy
     schedule_debounce_seconds: float = 10
     # Exported KcELECTRA (part 3). Empty = dictionary filter only.
     moderation_onnx_path: str = ""
