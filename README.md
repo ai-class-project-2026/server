@@ -42,7 +42,7 @@ SCHEDULE_LLM_URL=http://localhost:11434 SCHEDULE_LLM_MODEL=qwen2.5:3b make dev
 
 | 영역 | 엔드포인트 |
 |---|---|
-| 인증 | `POST /auth/signup`, `/auth/login`, `/auth/google`, `GET /auth/me` |
+| 인증 | `POST /auth/signup`, `/auth/login`, `GET /auth/me` |
 | 워크스페이스 | `GET/POST /workspaces`, `GET/PATCH /workspaces/{id}`, `GET /workspaces/{id}/members`, `POST /invites/{code}` |
 | 채팅 | `GET/POST /workspaces/{id}/channels`, `GET/POST /channels/{id}/messages`, `WS /ws/channels/{id}?token=`, `POST /reports` |
 | 캘린더 | `GET/POST /workspaces/{id}/events`, `PATCH/DELETE /events/{id}` |

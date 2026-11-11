@@ -4,8 +4,6 @@ from typing import Annotated
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token
 from pwdlib import PasswordHash
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,19 +47,3 @@ async def current_user(
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
-
-
-def verify_google_token(token: str) -> dict:
-    """Returns Google's claims (sub, email, email_verified, name)."""
-    # Without an audience google-auth skips the check and accepts tokens issued
-    # to any app, so refuse instead of verifying.
-    if not settings.google_client_id:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, "Google login not configured"
-        )
-    try:
-        return id_token.verify_oauth2_token(
-            token, google_requests.Request(), settings.google_client_id
-        )
-    except ValueError:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Google token")

@@ -21,7 +21,7 @@ def test_migration_and_constraints(tmp_path):
         engine = create_async_engine(url)
         event.listen(engine.sync_engine, "connect", sqlite_pragmas)
         async with AsyncSession(engine) as s:
-            u = User(name="민준", email="a@x.com")
+            u = User(name="민준", email="a@x.com", password_hash="x")
             ws = Workspace(name="팀", invite_code="abc")
             s.add_all([u, ws])
             await s.flush()

@@ -24,10 +24,6 @@ class LoginIn(BaseModel):
     password: str
 
 
-class GoogleLoginIn(BaseModel):
-    id_token: str  # credential from Google Identity Services on the web
-
-
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

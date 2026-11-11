@@ -71,8 +71,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50))
     email: Mapped[str] = mapped_column(String(255), unique=True)
-    password_hash: Mapped[str | None]  # null for Google-only accounts
-    google_id: Mapped[str | None] = mapped_column(unique=True)
+    password_hash: Mapped[str]
     created_at: Mapped[dt.datetime] = _now()
 
 

@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     # Required, no default: a guessable key lets anyone forge tokens.
     jwt_secret: str = Field(min_length=32)
     jwt_expire_days: int = 7
-    google_client_id: str = ""
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # /moderate and /schedule: required X-API-Key when set (eval scripts, Discord bot)

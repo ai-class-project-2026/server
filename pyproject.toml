@@ -10,7 +10,6 @@ dependencies = [
     "pydantic-settings",
     "pyjwt",
     "pwdlib[argon2]",
-    "google-auth[requests]",
     "numpy>=2.5.4",
 ]
 
