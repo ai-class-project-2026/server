@@ -65,6 +65,8 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 | `backend/app/moderation/` (normalize, dict_filter, classifier, 단어 목록) | 파트 3 |
 | `ml/common/dateparse_ko/`, `backend/tests/test_dateparse.py` | 파트 4 |
 | `backend/app/schedule/`, `ml/schedule/` | 파트 1 |
+| `ml/moderation/train.py`, `ml/moderation/export_onnx.py` (욕설 모델 학습, ONNX 변환) | 파트 1 |
+| `ml/moderation/augment/`, `data/moderation/`, `eval/moderation/` (학습 데이터, 채점) | 파트 3 |
 
 ## 일정 AI 학습/평가
 
@@ -88,5 +90,7 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 학습 프롬프트와 서빙 프롬프트는 같은 `app/schedule/prompt.py`를 쓴다.
 
 서버는 워커 1개로 띄운다 (WebSocket 허브와 디바운스가 프로세스 메모리에 있음).
+
+AI 사용 기록: [`ai-sessions/`](ai-sessions/README.md) (처음 한 번 `git config ai.part partN`)
 
 기획서: [plan](https://github.com/ai-class-project-2026/plan)
