@@ -80,6 +80,7 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 | 단계 | 명령 |
 |---|---|
 | 증강 | `ml/moderation/augment/` (규칙 추가) |
+| 학습 데이터 | `uv run python ml/moderation/build_train.py` (raw/*.jsonl + 증강 → `data/moderation/train.jsonl`) |
 | 학습 (Colab) | `ml/moderation/train.py` 맨 위 주석 참고 |
 | ONNX 변환 | `ml/moderation/export_onnx.py` → 서버에 `MODERATION_ONNX_PATH` 설정, `uv sync --group onnx` |
 | 채점 | `uv run python eval/moderation/score.py data/moderation/test_C_human/sample.jsonl --label dict-v0` |
@@ -88,6 +89,8 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 학습 프롬프트와 서빙 프롬프트는 같은 `app/schedule/prompt.py`를 쓴다.
 
 서버는 워커 1개로 띄운다 (WebSocket 허브와 디바운스가 프로세스 메모리에 있음).
+
+디스코드 봇(플랜 B): `uv run --group bot --env-file .env python bots/discord/bot.py`
 
 AI 사용 기록: [`ai-sessions/`](ai-sessions/README.md) (처음 한 번 `git config ai.part partN`)
 

@@ -11,3 +11,4 @@ data/schedule/synth/*
 data/moderation/raw/*
 *.gguf
 lora-*/
+data/moderation/train.jsonl

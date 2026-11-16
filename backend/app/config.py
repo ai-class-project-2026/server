@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")  # .env is shared with the Discord bot
 
     database_url: str = "sqlite+aiosqlite:///./app.db"
     # Required, no default: a guessable key lets anyone forge tokens.

@@ -17,6 +17,9 @@ dependencies = [
 ml = [
     "anthropic>=2.8.0",
 ]
+bot = [
+    "discord.py",
+]
 onnx = [
     "onnxruntime>=1.31.1",
     "tokenizers>=0.23.3",
