@@ -1,8 +1,7 @@
 """Bypass-style augmentation rules (plan 9.3). Owned by part 3.
 
 Each rule: (text, rng) -> text. Label stays the same, so one labeled sentence
-becomes many. Add a test with input/output examples for every rule in
-backend/tests/test_augment.py. Apply to clean sentences too (plan 9.3 last line).
+becomes many. Apply to clean sentences too (plan 9.3 last line).
 """
 
 import random

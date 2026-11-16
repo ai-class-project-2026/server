@@ -13,8 +13,6 @@ make dev       # http://localhost:8000/docs
 
 | 명령 | 내용 |
 |---|---|
-| `make test` | pytest |
-| `make lint` | ruff |
 | `make revision m="add users"` | 모델 변경으로 마이그레이션 생성 |
 | `make openapi` | `openapi.json` 생성 (web 타입 생성용) |
 
@@ -63,7 +61,7 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 | 위치 | 담당 |
 |---|---|
 | `backend/app/moderation/` (normalize, dict_filter, classifier, 단어 목록) | 파트 3 |
-| `ml/common/dateparse_ko/`, `backend/tests/test_dateparse.py` | 파트 4 |
+| `ml/common/dateparse_ko/` | 파트 4 |
 | `backend/app/schedule/`, `ml/schedule/` | 파트 1 |
 | `ml/moderation/train.py`, `ml/moderation/export_onnx.py` (욕설 모델 학습, ONNX 변환) | 파트 1 |
 | `ml/moderation/augment/`, `data/moderation/`, `eval/moderation/` (학습 데이터, 채점) | 파트 3 |
@@ -81,7 +79,7 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 
 | 단계 | 명령 |
 |---|---|
-| 증강 | `ml/moderation/augment/` (규칙 추가 + `backend/tests/test_augment.py`) |
+| 증강 | `ml/moderation/augment/` (규칙 추가) |
 | 학습 (Colab) | `ml/moderation/train.py` 맨 위 주석 참고 |
 | ONNX 변환 | `ml/moderation/export_onnx.py` → 서버에 `MODERATION_ONNX_PATH` 설정, `uv sync --group onnx` |
 | 채점 | `uv run python eval/moderation/score.py data/moderation/test_C_human/sample.jsonl --label dict-v0` |

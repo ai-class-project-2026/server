@@ -34,5 +34,4 @@ def parse(text: str, ref: dt.date) -> list[Mention]:
         )
     # TODO(part 4): 요일, 다음주/다다음주 X요일, 이번 주말, M/D, M월 D일,
     # "~의 그 전주", N시 (1~7시는 오후), N시 반, 점심시간/방과후 → time_text.
-    # Write the test first in backend/tests/test_dateparse.py, then make it pass.
     return out

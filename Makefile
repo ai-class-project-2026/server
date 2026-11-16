@@ -1,12 +1,6 @@
 dev:
 	PYTHONPATH=ml/common uv run uvicorn app.main:app --reload --app-dir backend --reload-dir backend --reload-dir ml/common
 
-test:
-	uv run pytest
-
-lint:
-	uv run ruff check .
-
 migrate:
 	uv run alembic upgrade head
 
