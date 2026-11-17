@@ -1,0 +1,9 @@
+{
+  "worktree": {
+    "setup": [
+      "uv sync",
+      "[ -f .env ] || sed \"s|^JWT_SECRET=.*|JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')|\" .env.example > .env",
+      "make migrate"
+    ]
+  }
+}
