@@ -44,6 +44,27 @@ def natural_time(text: str) -> str:
     return _24H.sub(spoken, text)
 
 
+def held_out_texts() -> set[str]:
+    """시험셋의 문장(공백 제거). 합성 대화에 우연히 같은 문장이 있어도 학습에서 빼요."""
+
+    def strings(v):
+        if isinstance(v, str):
+            yield v
+        elif isinstance(v, (list, dict)):
+            for x in v.values() if isinstance(v, dict) else v:
+                yield from strings(x)
+
+    texts = set()
+    for folder in (Path("data/schedule/real_test"), Path("data/schedule/pilot")):
+        for path in folder.rglob("*.jsonl"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    texts |= {c for s in strings(json.loads(line)) if len(c := re.sub(r"\s", "", s)) >= 6}
+                except ValueError:
+                    continue
+    return texts
+
+
 def useful_v1(r: dict) -> bool:
     if r["type"] in ("proposal_only", "not_schedule"):
         return True
@@ -98,11 +119,14 @@ def main():
     v1 = [repair_v1(r, rng) for r in read_jsonl(args.v1) if useful_v1(r)]
     rng.shuffle(v1)
     v1 = v1[: int(len(v2) * V1_SHARE)]
+    held_out = held_out_texts()
     seen, out, dropped = set(), [], collections.Counter()
     for r in v2 + v1:
         chat = tuple(re.sub(r"\s", "", t["text"]) for t in r["dialogue"])
         if chat in seen:
             dropped["duplicate"] += 1
+        elif held_out.intersection(chat):
+            dropped["held-out"] += 1
         elif not valid(r):
             dropped[f"invalid {r['source']}"] += 1
         else:
