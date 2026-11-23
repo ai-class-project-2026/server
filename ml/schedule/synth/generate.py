@@ -12,17 +12,14 @@ import argparse
 import datetime as dt
 import json
 import random
-import subprocess
 import sys
-import tempfile
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from pydantic import BaseModel
 
-sys.path[:0] = [str(Path(__file__).parent)]
+sys.path[:0] = [str(Path(__file__).parent), "ml/common"]
 import scenarios
+from codex_json import ask_all
 
 PROMPT = """너는 고등학생 팀플 단톡 대화를 만드는 작가야.
 아래 시나리오를 정확히 따르는 대화를 만들어.
@@ -63,70 +60,14 @@ SCHEMA = {
     },
 }
 
-# No tools, no user config, and an empty working folder: the writer sees only
-# the scenario, so the real test sets can never reach it.
-CODEX_ARGS = [
-    "--ignore-user-config",
-    "--ignore-rules",
-    "--ephemeral",
-    "--skip-git-repo-check",
-    "--json",
-    "-s", "read-only",
-    "-c", 'model_reasoning_effort="high"',
-    "-c", 'service_tier="priority"',  # Codex "fast mode"
-    "-c", "suppress_unstable_features_warning=true",
-    "-c", "project_doc_max_bytes=0",
-    "-c", "include_permissions_instructions=false",
-    "-c", "include_apps_instructions=false",
-    "-c", "include_collaboration_mode_instructions=false",
-    "-c", "include_environment_context=false",
-    "-c", 'web_search="disabled"',
-    "--enable", "skip_host_skill_discovery",
-    "--enable", "omit_skill_descriptions",
-    "--disable", "apps",
-    "--disable", "plugins",
-    "--disable", "multi_agent",
-    "--disable", "shell_tool",
-    "--disable", "tool_search",
-    "--disable", "unified_exec",
-]  # fmt: skip
-
-
-def write(model: str, sc: dict) -> tuple[list[Turn], dict]:
+def to_prompt(sc: dict) -> str:
     ref = dt.date.fromisoformat(sc["ref_date"])
-    prompt = PROMPT.format(
+    return PROMPT.format(
         ref=ref,
         weekday=scenarios.WEEKDAYS[ref.weekday()],
         people=", ".join(sc["participants"]),
         flow=sc["flow"],
     )
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        (root / "work").mkdir()
-        (root / "schema.json").write_text(json.dumps(SCHEMA))
-        (root / "instructions.md").write_text("요청받은 JSON만 출력한다. 도구를 쓰지 않는다.\n")
-        run = subprocess.run(
-            [
-                "codex", "exec", "-m", model, *CODEX_ARGS,
-                "-c", f"model_instructions_file={json.dumps(str(root / 'instructions.md'))}",
-                "-C", str(root / "work"),
-                "--output-schema", str(root / "schema.json"),
-                "-o", str(root / "out.json"),
-                prompt,
-            ],  # fmt: skip
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if run.returncode:
-            raise RuntimeError(f"codex exit {run.returncode}: {run.stdout[-300:]}")
-        turns = Dialogue.model_validate_json((root / "out.json").read_text()).turns
-    usage = {}
-    for line in run.stdout.splitlines():
-        if line.startswith('{"type":"turn.completed"'):
-            usage = json.loads(line)["usage"]
-    return turns, usage
 
 
 def check(sc: dict, turns: list[Turn]) -> bool:
@@ -180,34 +121,17 @@ def main():
 
     rng = random.Random(args.seed)
     todo = [scenarios.make(rng) for _ in range(args.n)]
-    stop = threading.Event()  # a run of failures usually means the quota is gone
-    failures = 0
-
-    def one(sc):
-        nonlocal failures
-        if stop.is_set():
-            return sc, None
-        try:
-            res = write(args.model, sc)
-            failures = 0
-            return sc, res
-        except (subprocess.SubprocessError, RuntimeError, ValueError, OSError) as e:
-            print(f"skip: {str(e)[:300]}", file=sys.stderr)
-            failures += 1
-            if failures >= 10:
-                stop.set()
-        return sc, None
-
     kept = dropped = tokens_in = tokens_out = 0
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out, "a") as f, ThreadPoolExecutor(args.workers) as pool:
-        for sc, res in pool.map(one, todo):
-            if res is None:
-                dropped += 1
-                continue
-            turns, usage = res
+    with open(args.out, "a") as f:
+        for sc, answer, usage in ask_all(args.model, todo, to_prompt, SCHEMA, args.workers):
             tokens_in += usage.get("input_tokens", 0)
             tokens_out += usage.get("output_tokens", 0)
+            try:
+                turns = Dialogue.model_validate(answer).turns
+            except ValueError:  # no answer, or not the shape we asked for
+                dropped += 1
+                continue
             if check(sc, turns):
                 f.write(json.dumps(to_record(sc, turns), ensure_ascii=False) + "\n")
                 f.flush()
@@ -217,7 +141,7 @@ def main():
     print(
         f"kept {kept}, dropped {dropped}, tokens in {tokens_in} out {tokens_out} → {args.out}"
     )
-    if stop.is_set():
+    if ask_all.stopped:
         sys.exit("stopped after 10 failures in a row")
 
 
