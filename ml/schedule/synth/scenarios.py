@@ -233,7 +233,8 @@ def _reschedule(ref, people, rng, used):
     lead = rng.choice(people)
     settle, word = _settle(lead, people, rng)
     beats = [f"{lead}: 이미 잡혀 있던 {_pitch(old)} 일정을 {_pitch(new)}(으)로 옮기자고 함", *settle]
-    return beats, [_event(new, "confirmed", people)], [_event(old, "confirmed", people)], _must(old, new), word
+    events = [_event(old, "rejected"), _event(new, "confirmed", people)]  # the old time is dropped, not a cancelled meeting
+    return beats, events, [_event(old, "confirmed", people)], _must(old, new), word
 
 
 def _partial_absent(ref, people, rng, used):

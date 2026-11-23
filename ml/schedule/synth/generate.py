@@ -178,7 +178,14 @@ def _keys(events: list[dict], existing: list[dict]) -> set:
 
 def agrees(record: dict, answer: dict) -> bool:
     existing = record["existing_events"]
-    return _keys(record["events"], existing) == _keys(answer["events"], existing)
+    # A dropped time may be reported as rejected or cancelled; both mean it's off.
+    dropped = {(e["date"], (e["start"] or "")[:5]) for e in record["events"] if e["status"] == "rejected"}
+    said = [
+        e
+        for e in answer["events"]
+        if not (e["status"] == "cancelled" and (e["date"], (e.get("start") or "")[:5]) in dropped)
+    ]
+    return _keys(record["events"], existing) == _keys(said, existing)
 
 
 def main():
@@ -268,6 +275,10 @@ def demo():
     assert not agrees(rec, {"events": [ev | {"status": "proposed"}]})
     assert not agrees(rec, {"events": [ev | {"start": "20:00"}]})
     assert agrees({"events": [], "existing_events": [ev]}, {"events": [ev]})  # untouched calendar entry
+    old = ev | {"date": "2026-10-15", "status": "rejected"}
+    moved = {"events": [old, ev], "existing_events": [old | {"status": "confirmed"}]}
+    assert agrees(moved, {"events": [old | {"status": "cancelled"}, ev]})  # old time reported as cancelled
+    assert not agrees(moved, {"events": [old | {"status": "cancelled"}]})  # new time is missing
     print("ok", dict(counts))
 
 

@@ -1,6 +1,8 @@
 """Synthetic chat-context data for the profanity model (plan 9.8).
 
-    uv run python ml/moderation/synth_context.py --n 20 --out data/moderation/raw/context_try.jsonl
+    uv run python ml/moderation/synth_context.py --n 20 --out data/moderation/raw/_try/context.jsonl
+
+Samples go in a subfolder: build_train.py trains on every raw/*.jsonl.
 
 The scenario (and so the label) is decided in code first; Codex only writes the
 chat. Each output line: {"text": message to judge, "context": [earlier messages,
