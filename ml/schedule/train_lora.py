@@ -49,7 +49,7 @@ def main():
 
     rows = [
         to_chat(json.loads(line))
-        for line in Path(args.data).read_text().splitlines()
+        for line in Path(args.data).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     split = Dataset.from_list(rows).train_test_split(test_size=0.05, seed=0)

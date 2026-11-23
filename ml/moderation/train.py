@@ -54,7 +54,7 @@ def main():
     )
 
     rows = [
-        json.loads(x) for x in Path(args.train).read_text().splitlines() if x.strip()
+        json.loads(x) for x in Path(args.train).read_text(encoding="utf-8").splitlines() if x.strip()
     ]
     if any("group" not in r for r in rows):
         print(

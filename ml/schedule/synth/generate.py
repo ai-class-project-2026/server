@@ -202,7 +202,7 @@ def main():
         tokens_in += usage.get("input_tokens", 0)
         tokens_out += usage.get("output_tokens", 0)
 
-    with open(args.out, "a") as f:
+    with open(args.out, "a", encoding="utf-8") as f:
         for i in range(0, len(todo), args.chunk):
             written = []
             for sc, answer, usage in ask_all(

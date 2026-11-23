@@ -134,7 +134,7 @@ def main():
     todo = [make(rng) for _ in range(args.n)]
     kept = dropped = tokens_in = tokens_out = 0
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out, "a") as f:
+    with open(args.out, "a", encoding="utf-8") as f:
         # One schema per kind, so ask kind by kind.
         for kind in KINDS:
             batch = [sc for sc in todo if sc["kind"] == kind]

@@ -31,7 +31,7 @@ N_AUG = 3  # augmented copies per sentence
 
 
 def read_jsonl(path: Path) -> list[dict]:
-    return [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
 def main():
@@ -55,7 +55,9 @@ def main():
                 }
     out = [{"text": t, "context": list(c), **v} for (t, c), v in rows.items()]
     rng.shuffle(out)
-    OUT.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out))
+    OUT.write_text(
+        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8"
+    )
     bad = sum(r["label"] for r in out)
     n_groups = len({r["group"] for r in out})
     print(

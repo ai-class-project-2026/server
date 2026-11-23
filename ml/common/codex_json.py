@@ -46,8 +46,8 @@ def ask(model: str, prompt: str, schema: dict) -> tuple[dict, dict]:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "work").mkdir()
-        (root / "schema.json").write_text(json.dumps(schema))
-        (root / "instructions.md").write_text("요청받은 JSON만 출력한다. 도구를 쓰지 않는다.\n")
+        (root / "schema.json").write_text(json.dumps(schema), encoding="utf-8")
+        (root / "instructions.md").write_text("요청받은 JSON만 출력한다. 도구를 쓰지 않는다.\n", encoding="utf-8")
         run = subprocess.run(
             [
                 "codex", "exec", "-m", model, *CODEX_ARGS,
@@ -64,7 +64,7 @@ def ask(model: str, prompt: str, schema: dict) -> tuple[dict, dict]:
         )
         if run.returncode:
             raise RuntimeError(f"codex exit {run.returncode}: {run.stdout[-300:]}")
-        answer = json.loads((root / "out.json").read_text())
+        answer = json.loads((root / "out.json").read_text(encoding="utf-8"))
     usage = {}
     for line in run.stdout.splitlines():
         if line.startswith('{"type":"turn.completed"'):
