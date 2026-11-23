@@ -24,11 +24,20 @@ def _load():
     )
 
 
+def second_segment(norm: str, context: list[str]) -> str:
+    """Normalized text, then the last 3 messages newest first.
+
+    Truncation cuts from the end, so the oldest message is dropped first and the
+    message being judged is kept. Training and serving must both use this.
+    """
+    return " [SEP] ".join([norm, *reversed(list(context)[-3:])])
+
+
 def score(text: str, norm: str, context: list[str]) -> float | None:
     if not settings.moderation_onnx_path:
         return None
     tok, sess = _load()
-    enc = tok.encode(text, norm)  # same sentence pair as training
+    enc = tok.encode(text, second_segment(norm, context))
     feed = {
         "input_ids": [enc.ids],
         "attention_mask": [enc.attention_mask],

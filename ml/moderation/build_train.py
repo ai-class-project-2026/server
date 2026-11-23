@@ -4,7 +4,9 @@
 
 1. Convert each public dataset into data/moderation/raw/<name>.jsonl, one
    {"text": "...", "label": 0 | 1} per line (raw/ is gitignored, plan 16.6).
-   Write the source and license in data/README.md. UnSmile is eval-only.
+   Chat data adds "context": ["earlier message", ...], oldest first; the label
+   is about text only. Write the source and license in data/README.md.
+   UnSmile is eval-only.
 2. Run this script: every sentence is kept as-is and augmented with the rules
    in ml/moderation/augment, test sets C/D are removed, the rest is shuffled.
 3. Send the printed counts to part 1 with the PR.
@@ -37,13 +39,17 @@ def main():
     groups = {r["text"]: i for i, r in enumerate(raw)}
     rows = {}
     for r in raw:
+        context = r.get("context", [])
+        if test_texts.intersection(context):  # test sentences can't be context either
+            continue
         for text in [r["text"], *augment(r["text"], rng, N_AUG)]:
             if text not in test_texts:  # never train on the test sets
-                rows[text] = {
+                # Same words in another context can have another label.
+                rows[text, tuple(context)] = {
                     "label": r["label"],
                     "group": groups.get(text, groups[r["text"]]),
                 }
-    out = [{"text": t, **v} for t, v in rows.items()]
+    out = [{"text": t, "context": list(c), **v} for (t, c), v in rows.items()]
     rng.shuffle(out)
     OUT.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out))
     bad = sum(r["label"] for r in out)

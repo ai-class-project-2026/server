@@ -6,9 +6,10 @@
     uv pip install "transformers>=4.46" datasets accelerate
     uv run python ml/moderation/train.py --train data/moderation/train.jsonl --out kcelectra-v1
 
-Input jsonl lines: {"text": "...", "label": 0 | 1, "group": <source sentence id>}.
-The model reads the original text and the normalized text as a sentence pair
-(same as serving).
+Input jsonl lines: {"text": "...", "context": ["earlier message", ...],
+"label": 0 | 1, "group": <source sentence id>}. context is oldest first and may
+be empty; label is about text only. The model reads the original text, then the
+normalized text plus context, as a sentence pair (same as serving).
 """
 
 import argparse
@@ -20,6 +21,7 @@ from pathlib import Path
 
 sys.path[:0] = ["backend"]
 os.environ.setdefault("JWT_SECRET", "training-only-placeholder-secret-000")
+from app.moderation.classifier import second_segment
 from app.moderation.normalize import normalize
 
 
@@ -60,7 +62,7 @@ def main():
             file=sys.stderr,
         )
     for r in rows:
-        r["norm"] = normalize(r["text"])[0]
+        r["norm"] = second_segment(normalize(r["text"])[0], r.pop("context", []))
     tok = AutoTokenizer.from_pretrained(args.base)
 
     def encode(batch_rows):
