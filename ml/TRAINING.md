@@ -37,4 +37,4 @@ uv run python eval/moderation/score.py data/moderation/eval_only/kmhas_test.json
 
 날짜 정규화 결과가 학습 프롬프트에 그대로 들어간다. 규칙을 완성하기 전에 LoRA를 학습하면 서빙 때와 입력이 달라지므로, **날짜 정규화부터 끝내고 학습한다.**
 
-기본 베이스 모델은 `Qwen/Qwen2.5-3B-Instruct`다. Qwen Research License라 수업, 연구 용도만 가능하고 상업 서비스로 내려면 별도 허가가 필요하다. 상업 전환 시 후보는 `kakaocorp/kanana-2-3b-instruct`(Kanana Open License, "Powered by Kanana" 표시 의무)이고, 성능은 직접 비교해야 한다.
+기본 베이스 모델은 `Qwen/Qwen2.5-3B-Instruct`다. Qwen Research License라 수업, 연구 용도만 가능하고 상업 서비스로 내려면 별도 허가가 필요하다.
