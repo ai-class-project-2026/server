@@ -187,7 +187,7 @@ def main():
     ap.add_argument("--out", default="data/schedule/synth/train.jsonl")
     ap.add_argument("--model", default="gpt-6.1-sol")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--chunk", type=int, default=200)
     args = ap.parse_args()
 

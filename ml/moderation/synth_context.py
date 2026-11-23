@@ -127,7 +127,7 @@ def main():
     ap.add_argument("--out", default="data/moderation/raw/context_synth.jsonl")
     ap.add_argument("--model", default="gpt-6.1-sol")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=4)
     args = ap.parse_args()
 
     rng = random.Random(args.seed)

@@ -60,7 +60,7 @@ def ask(model: str, prompt: str, schema: dict) -> tuple[dict, dict]:
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=1200,  # Codex waits out rate limits itself, sometimes for 10 minutes
         )
         if run.returncode:
             raise RuntimeError(f"codex exit {run.returncode}: {run.stdout[-300:]}")
@@ -72,7 +72,7 @@ def ask(model: str, prompt: str, schema: dict) -> tuple[dict, dict]:
     return answer, usage
 
 
-def ask_all(model: str, items: list, to_prompt, schema: dict, workers: int = 8):
+def ask_all(model: str, items: list, to_prompt, schema: dict, workers: int = 4):
     """Yield (item, answer | None, usage) in order. Stops asking after 10 failures
     in a row (usually the quota is gone); `ask_all.stopped` tells the caller."""
     stop = threading.Event()
