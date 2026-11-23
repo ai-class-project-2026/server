@@ -4,6 +4,7 @@ this file only wires them together and must keep the same return shape."""
 import logging
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 from app.config import settings
 from app.moderation import candidate, classifier, dict_filter, normalize
@@ -77,4 +78,5 @@ def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationRe
         return ModerationResult(bool(spans), 1.0 if spans else 0.0, spans, restored, "dict")
     flagged = score >= THRESHOLDS[level]
     spans = _spans(ambiguous) if flagged else []
-    return ModerationResult(flagged, score, spans, restored, settings.moderation_onnx_path)
+    # 응답에는 서버 안의 전체 경로 대신 모델 폴더 이름만 내보내요
+    return ModerationResult(flagged, score, spans, restored, Path(settings.moderation_onnx_path).name)
