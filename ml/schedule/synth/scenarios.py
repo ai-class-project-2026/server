@@ -61,7 +61,7 @@ def make(rng: random.Random) -> dict:
     kind = rng.choices(list(TYPES), weights=TYPES.values())[0]
     title, place = rng.choice(TITLES), rng.choice(PLACES)
     d, t = _when(ref, rng)
-    say = _expression(ref, d, rng)
+    say = date_text = _expression(ref, d, rng)
     lead = people[0]
     where = f", 장소 {place}" if place else ""
     hhmm = f"{t.hour}시" + (" 반" if t.minute else "")
@@ -74,7 +74,7 @@ def make(rng: random.Random) -> dict:
         gold = [_event(title, d, t, place, "proposed", people)]
     elif kind == "revise":
         d2, t2 = _when(ref, rng)
-        say2 = _expression(ref, d2, rng)
+        say2 = date_text = _expression(ref, d2, rng)
         hhmm2 = f"{t2.hour}시" + (" 반" if t2.minute else "")
         flow = (
             f"{lead}가 {say} {hhmm} {title} 제안 → {people[1]}가 안 된다고 함 → "
@@ -103,5 +103,6 @@ def make(rng: random.Random) -> dict:
         "ref_date": ref.isoformat(),
         "participants": people,
         "flow": flow,
+        "date_text": date_text,  # how the chat must say the final date
         "events": gold,
     }
