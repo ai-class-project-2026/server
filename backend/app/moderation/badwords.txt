@@ -1,71 +1,10 @@
 # one word per line, normalized form (part 3 grows this)
-# normalize() already undoes digits/symbols/spaces/jamo/keyboard/stretching,
-# so list only real spellings + sound-alikes. Skip words that are also normal
-# words (시바견, 졸라서, 씹다, 새끼 고양이, 십팔 번) — the model handles those.
-
-# 시발
 시발
 씨발
-쉬발
-씌발
-쒸발
-싀발
-시빨
-씨빨
-씨팔
-시팔
-씨벌
-시벌
-씨부랄
-씨부럴
-시부랄
-십알
-씹알
-ㅅㅂ
-ㅆㅂ
-# 병신
 병신
-븅신
-빙신
-병쉰
-븽신
-ㅂㅅ
-ㅄ
-# 개새끼
 개새끼
-개새기
-개색기
-개색끼
-개세끼
-개쉐끼
-개쌔끼
-개섀끼
-씹새끼
-# 지랄
 지랄
-즤랄
-지럴
-질알
-ㅈㄹ
-# 좆
 좆
-존나
-존니
-씹년
-씹할
-썅년
-쌍년
-썅놈
-# 패드립
-니미
-니애미
-느금마
-느개비
-엠창
-애미뒤
-니기미
-미친놈
-미친년
-미친새끼
-염병할
+ㅅㅂ
+ㅂㅅ
 tlqkf

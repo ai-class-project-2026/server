@@ -4,7 +4,7 @@ from pathlib import Path
 
 _here = Path(__file__).parent
 _load = lambda name: [
-    w for w in (_here / name).read_text(encoding="utf-8").split() if not w.startswith("#")
+    w for w in (_here / name).read_text().split() if not w.startswith("#")
 ]
 BAD = _load("badwords.txt")
 WHITE = _load("whitelist.txt")
