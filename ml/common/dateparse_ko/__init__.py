@@ -22,7 +22,8 @@ class Mention:
 
 
 _WD = {"월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
-_REL = {"오늘": 0, "내일": 1, "낼": 1, "모레": 2, "글피": 3}
+_REL = {"오늘": 0, "내일": 1, "낼": 1, "모레": 2, "글피": 3, "내일모레": 2, "낼모레": 2}
+_WEEKS = {"다다음": 2, "다담": 2, "다음": 1, "담": 1}
 _AM = {"오전", "아침", "새벽"}
 _PM = {"오후", "저녁", "밤", "낮"}
 _TIME_TEXTS = ("수업 끝나고", "수업끝나고", "점심 시간", "점심시간", "방과 후", "방과후")
@@ -33,16 +34,16 @@ _TAIL = rf"(?:(?=[^\d가-힣]|$)|(?={_PARTICLE}))"
 _WD_WORD = r"[월화수목금토일](?:요일|욜)?"
 
 _WEEK = re.compile(
-    rf"(?<![가-힣])(?P<prefix>다다음|다음|이번|담)\s*주\s*(?P<wd>{_WD_WORD}){_TAIL}"
+    rf"(?<![가-힣])(?P<prefix>다다음|다담|다음|이번|담)\s*주\s*(?P<wd>{_WD_WORD}){_TAIL}"
 )
 _WEEKEND = re.compile(
-    rf"(?<![가-힣])(?P<prefix>다다음|다음|이번|담)?\s*주\s*말{_TAIL}"
+    rf"(?<![가-힣])(?P<prefix>다다음|다담|다음|이번|담)?\s*주\s*말{_TAIL}"
 )
 _MD = re.compile(rf"(?<!\d)(?P<month>\d{{1,2}})\s*/\s*(?P<day>\d{{1,2}}){_TAIL}")
 _MD_KO = re.compile(
     rf"(?<!\d)(?P<month>\d{{1,2}})\s*월\s*(?P<day>\d{{1,2}})\s*일{_TAIL}"
 )
-_REL_WORD = re.compile(rf"(?<![가-힣])(?P<word>글피|모레|내일|오늘|낼){_TAIL}")
+_REL_WORD = re.compile(rf"(?<![가-힣])(?P<word>내일모레|낼모레|글피|모레|내일|오늘|낼){_TAIL}")
 _BARE_WD = re.compile(rf"(?<![\d가-힣])(?P<wd>{_WD_WORD}){_TAIL}")
 _SHIFT_TAIL = re.compile(
     rf"의\s*그\s*(?P<which>전주|다음주)\s*(?P<wd>[월화수목금토일])(?:요일|욜)?{_TAIL}"
@@ -155,11 +156,10 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
         if prefix == "이번":
             found = _nearest(ref, wd)
         else:
-            weeks = 2 if prefix == "다다음" else 1
-            found = _nth_week(ref, weeks, wd)
+            found = _nth_week(ref, _WEEKS[prefix], wd)
         hits.append(_Hit(match.start(), match.end(), date=found))
     for match in _WEEKEND.finditer(text):
-        weeks = {"다다음": 2, "다음": 1, "담": 1}.get(match.group("prefix"), 0)
+        weeks = _WEEKS.get(match.group("prefix"), 0)
         hits.append(_Hit(match.start(), match.end(), date=_weekend(ref, weeks)))
     for pattern in (_MD_KO, _MD):
         for match in pattern.finditer(text):
