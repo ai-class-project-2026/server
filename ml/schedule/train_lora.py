@@ -60,7 +60,7 @@ def main():
         quantization_config=BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_compute_dtype=torch.bfloat16,
         ),
         device_map="auto",
     )
@@ -86,7 +86,7 @@ def main():
             assistant_only_loss=True,  # learn the JSON answer, not the prompt
             eval_strategy="epoch",
             logging_steps=10,
-            fp16=True,
+            bf16=True,  # fp16's grad scaler can't handle bf16 LoRA weights
         ),
     )
     trainer.train()
