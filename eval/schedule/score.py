@@ -65,7 +65,9 @@ def score(golds: list[dict], preds: list[dict]) -> dict:
 
 def _read(path):
     return [
-        json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()
+        json.loads(line)
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
     ]
 
 
@@ -86,7 +88,7 @@ def main():
     report = Path(args.report)
     report.parent.mkdir(parents=True, exist_ok=True)
     new = not report.exists()
-    with report.open("a", newline="") as f:
+    with report.open("a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if new:
             w.writerow(
