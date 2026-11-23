@@ -21,7 +21,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from augment import augment
 
 RAW = Path("data/moderation/raw")
-TESTS = [Path("data/moderation/test_C_human"), Path("data/moderation/test_D_fp")]
+TESTS = [
+    Path("data/moderation/test_C_human"),
+    Path("data/moderation/test_D_fp"),
+    Path("data/moderation/eval_only"),  # public test splits, UnSmile
+]
 OUT = Path("data/moderation/train.jsonl")
 N_AUG = 3  # augmented copies per sentence
 
