@@ -31,17 +31,27 @@ def read_jsonl(path: Path) -> list[dict]:
 def main():
     rng = random.Random(0)
     test_texts = {r["text"] for d in TESTS for f in d.glob("*.jsonl") for r in read_jsonl(f)}
+    raw = [r for f in sorted(RAW.glob("*.jsonl")) for r in read_jsonl(f)]
+    # A sentence and its variants share a group, so train.py keeps them on one
+    # side of the validation split.
+    groups = {r["text"]: i for i, r in enumerate(raw)}
     rows = {}
-    for f in sorted(RAW.glob("*.jsonl")):
-        for r in read_jsonl(f):
-            for text in [r["text"], *augment(r["text"], rng, N_AUG)]:
-                if text not in test_texts:  # never train on the test sets
-                    rows[text] = r["label"]
-    out = [{"text": t, "label": y} for t, y in rows.items()]
+    for r in raw:
+        for text in [r["text"], *augment(r["text"], rng, N_AUG)]:
+            if text not in test_texts:  # never train on the test sets
+                rows[text] = {
+                    "label": r["label"],
+                    "group": groups.get(text, groups[r["text"]]),
+                }
+    out = [{"text": t, **v} for t, v in rows.items()]
     rng.shuffle(out)
     OUT.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out))
     bad = sum(r["label"] for r in out)
-    print(f"{OUT}: {len(out)} rows (profane {bad}, clean {len(out) - bad})")
+    n_groups = len({r["group"] for r in out})
+    print(
+        f"{OUT}: {len(out)} rows from {n_groups} sentences "
+        f"(profane {bad}, clean {len(out) - bad})"
+    )
 
 
 if __name__ == "__main__":
