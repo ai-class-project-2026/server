@@ -3,8 +3,10 @@
 from pathlib import Path
 
 _here = Path(__file__).parent
-_load = lambda name: [
-    w for w in (_here / name).read_text(encoding="utf-8").split() if not w.startswith("#")
+_load = lambda name: [  # one word per line; "#" to end of line is a comment
+    w
+    for line in (_here / name).read_text(encoding="utf-8").splitlines()
+    if (w := line.split("#")[0].strip())
 ]
 BAD = _load("badwords.txt")
 WHITE = _load("whitelist.txt")
