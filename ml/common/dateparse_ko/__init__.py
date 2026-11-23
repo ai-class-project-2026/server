@@ -115,19 +115,45 @@ def _wd_index(token: str) -> int:
     return _WD[token[0]]
 
 
+def _ends_in_rieul(word: str) -> bool:
+    """'볼', '뛰어다닐', '내일'처럼 끝 글자 받침이 ㄹ인지."""
+    return bool(word) and "가" <= word[-1] <= "힣" and (ord(word[-1]) - 0xAC00) % 28 == 8
+
+
 def _bare_ok(text: str, start: int, end: int) -> bool:
-    """한 글자 요일은 '할 수 있어', '할 일' 같은 말과 겹치지 않게."""
+    """한 글자 요일은 '볼 수 있어', '집에 일이 생김', '목도리' 같은 말과 겹치지 않게."""
     token = text[start:end]
     if len(token) != 1:
         return True
     prev = text[:start].rstrip()
-    nxt = text[end:].lstrip()
+    after = text[end:]
+    nxt = after.lstrip()
+    # 뒤에 글자가 붙어 있으면 조사로 끝날 때만 요일이다: "목도 돼"는 요일, "목도리"는 아님
+    if after[:1] and "가" <= after[0] <= "힣" and not re.match(rf"{_PARTICLE}(?![가-힣])", after):
+        return False
     if token == "수" and (
-        prev.endswith(("할", "있을", "없을", "있는", "없는"))
+        (_ends_in_rieul(prev) and not prev.endswith(("오늘", "내일", "낼")))
+        or prev.endswith(("있는", "없는"))
         or nxt.startswith(("있", "없", "많", "업"))
     ):
         return False
-    if token == "일" and prev.endswith("할"):
+    if token == "일" and (
+        _ends_in_rieul(prev)
+        or prev.endswith(("무슨", "큰", "별", "그런", "이런", "저런", "많은", "급한", "딴", "다른", "집에"))
+        or re.match(r"(?:이|을|를)(?![가-힣])", after)
+    ):
+        return False
+    if token == "화" and (
+        prev.endswith(("다음", "새", "이번", "몇", "마지막", "첫"))
+        or nxt.startswith(("났", "나", "내", "남", "풀", "낼"))
+    ):
+        return False
+    if token == "목" and (
+        prev.endswith(("내", "네", "니", "제", "너", "나"))
+        or nxt.startswith(("아프", "아파", "아픔", "말라", "마르", "쉬", "터", "막혀", "따가", "좀 아"))
+    ):
+        return False
+    if token == "토" and nxt.startswith(("나와", "나올", "할", "쏠")):
         return False
     if token == "월" and prev.endswith(("몇", "개", "매")):
         return False
