@@ -6,6 +6,8 @@ becomes many. Apply to clean sentences too (plan 9.3 last line).
 
 import random
 
+from .similar_sound import similar_sound
+
 
 def insert_digit(text: str, rng: random.Random) -> str:
     """시발 → 시1발 (a digit between two hangul syllables)."""
@@ -21,8 +23,8 @@ def insert_digit(text: str, rng: random.Random) -> str:
 
 
 # TODO(part 3): insert_symbol (씨@발), split_jamo (ㅅㅣ발), move_final (시ㅂ알), chosung (ㅅㅂ),
-# split_space (시 발), similar_sound (쉬발), keyboard (tlqkf), stretch (시이이발), combo.
-RULES = [insert_digit]
+# split_space (시 발), keyboard (tlqkf), stretch (시이이발), combo.
+RULES = [insert_digit, similar_sound]
 
 
 def augment(text: str, rng: random.Random, n: int = 3) -> list[str]:
