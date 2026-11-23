@@ -5,7 +5,7 @@
 Each base word is expanded with augment.similar_sound.word_variants
 (시발 → 쉬발, 씨벌, 쓰빨 ...). A variant is dropped when
   1. it is a normal word: it shows up in clean sentences of the training data
-     (data/moderation/raw/*.jsonl, run fetch_public.py first) or is in NOT_BAD
+     (data/moderation/raw/*.jsonl, run prepare_public.py first) or is in NOT_BAD
   2. it is already caught: an existing bad word is part of it (개쌔끼 ⊃ 쌔끼)
 Test sets A/C/D are never read here. Rerun after changing BASES or NOT_BAD.
 """
@@ -80,7 +80,7 @@ def corpus_counts(max_len: int) -> tuple[Counter, Counter]:
 
 def main():
     if not any(RAW.glob("*.jsonl")):
-        sys.exit(f"no training data in {RAW}: run ml/moderation/fetch_public.py first")
+        sys.exit(f"no training data in {RAW}: run ml/moderation/prepare_public.py first")
     known = load("badwords.txt")
     candidates = {}  # variant -> base
     for base, k in BASES:

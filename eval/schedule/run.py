@@ -68,8 +68,10 @@ def main():
     ap.add_argument("--model", default="claude-opus-5-5")
     args = ap.parse_args()
 
-    with open(args.out, "w") as f:
-        for line in Path(args.testset).read_text().splitlines():
+    with open(args.out, "w", encoding="utf-8") as f:
+        for line in Path(args.testset).read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
             req = ScheduleRequest.model_validate_json(line)
             t = time.perf_counter()
             events = (

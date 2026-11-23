@@ -9,6 +9,7 @@ openapi.json
 # data (plan 16.6)
 data/schedule/synth/*
 data/moderation/raw/*
+data/moderation/eval_only/
 data/moderation/test_A_public/*
 *.gguf
 lora-*/

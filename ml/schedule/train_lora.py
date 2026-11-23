@@ -1,9 +1,11 @@
 """QLoRA fine-tune of a small instruct model on the synthetic chats (plan 8.7).
-Run on Colab (T4/L4). Not part of the server's dependencies:
+Run on a GPU machine. The training packages are not server dependencies:
 
-    !git clone <server repo> && cd server
-    !pip install -q "transformers>=4.46" "trl>=0.12" peft bitsandbytes datasets accelerate pydantic dateparse
-    !python ml/schedule/train_lora.py --data data/schedule/synth/train.jsonl --out lora-v1
+    git clone <server repo> && cd server
+    uv sync  # the training code imports the app package
+    uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+    uv pip install "transformers>=4.46" "trl>=0.12" peft bitsandbytes datasets accelerate
+    uv run python ml/schedule/train_lora.py --data data/schedule/synth/train.jsonl --out lora-v1
 
 Then serve: merge the adapter, convert to GGUF (llama.cpp convert_hf_to_gguf.py,
 q4_K_M), run `llama-server -m model.gguf --port 8080`, and set
@@ -47,7 +49,7 @@ def main():
 
     rows = [
         to_chat(json.loads(line))
-        for line in Path(args.data).read_text().splitlines()
+        for line in Path(args.data).read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     split = Dataset.from_list(rows).train_test_split(test_size=0.05, seed=0)
@@ -58,7 +60,7 @@ def main():
         quantization_config=BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_compute_dtype=torch.bfloat16,
         ),
         device_map="auto",
     )
@@ -84,7 +86,7 @@ def main():
             assistant_only_loss=True,  # learn the JSON answer, not the prompt
             eval_strategy="epoch",
             logging_steps=10,
-            fp16=True,
+            bf16=True,  # fp16's grad scaler can't handle bf16 LoRA weights
         ),
     )
     trainer.train()

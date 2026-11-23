@@ -1,7 +1,8 @@
 """Trained model folder → model.onnx + tokenizer, for app/moderation/classifier.py.
 
-    !pip install -q "optimum[onnxruntime]"
-    !python ml/moderation/export_onnx.py kcelectra-v1 onnx-v1
+    uv run --no-project --isolated --python 3.13 --with "optimum[onnxruntime]" python ml/moderation/export_onnx.py kcelectra-v1 onnx-v1
+
+optimum needs an older transformers, so it runs in its own temporary environment.
 
 Then copy onnx-v1/ to the server and set MODERATION_ONNX_PATH=onnx-v1.
 """

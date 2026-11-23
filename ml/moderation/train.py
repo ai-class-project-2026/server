@@ -1,22 +1,40 @@
-"""Fine-tune KcELECTRA for profanity (plan 9.2 ③). Run on Colab:
+"""Fine-tune KcELECTRA for profanity (plan 9.2 ③). Run on a GPU machine:
 
-    !git clone <server repo> && cd server
-    !pip install -q "transformers>=4.46" datasets accelerate
-    !python ml/moderation/train.py --train data/moderation/train.jsonl --out kcelectra-v1
+    git clone <server repo> && cd server
+    uv sync  # the training code imports the app package
+    uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+    uv pip install "transformers>=4.46" datasets accelerate
+    uv run python ml/moderation/train.py --train data/moderation/train.jsonl --out kcelectra-v1
 
-Input jsonl lines: {"text": "...", "label": 0 | 1}. The model reads the
-original text and the normalized text as a sentence pair (same as serving).
+Input jsonl lines: {"text": "...", "context": ["earlier message", ...],
+"label": 0 | 1, "group": <source sentence id>}. context is oldest first and may
+be empty; label is about text only. The model reads the original text, then the
+normalized text plus context, as a sentence pair (same as serving).
 """
 
 import argparse
 import json
 import os
+import random
 import sys
 from pathlib import Path
 
 sys.path[:0] = ["backend"]
 os.environ.setdefault("JWT_SECRET", "training-only-placeholder-secret-000")
+from app.moderation.classifier import second_segment
 from app.moderation.normalize import normalize
+
+
+def split_by_group(rows: list[dict], val_frac: float = 0.1, seed: int = 0):
+    """Keep every variant of a source sentence on one side, so val scores are honest."""
+    key = lambda r: r.get("group", r["text"])
+    groups = sorted({key(r) for r in rows}, key=str)
+    random.Random(seed).shuffle(groups)
+    val_groups = set(groups[: max(1, int(len(groups) * val_frac))])
+    train, val = [], []
+    for r in rows:
+        (val if key(r) in val_groups else train).append(r)
+    return train, val
 
 
 def main():
@@ -36,22 +54,30 @@ def main():
     )
 
     rows = [
-        json.loads(x) for x in Path(args.train).read_text().splitlines() if x.strip()
+        json.loads(x) for x in Path(args.train).read_text(encoding="utf-8").splitlines() if x.strip()
     ]
+    if any("group" not in r for r in rows):
+        print(
+            "WARNING: rows without 'group'; variants of one sentence can leak into val",
+            file=sys.stderr,
+        )
     for r in rows:
-        r["norm"] = normalize(r["text"])[0]
+        r["norm"] = second_segment(normalize(r["text"])[0], r.pop("context", []))
     tok = AutoTokenizer.from_pretrained(args.base)
-    ds = Dataset.from_list(rows).map(
-        lambda b: tok(b["text"], b["norm"], truncation=True, max_length=128),
-        batched=True,
-    )
-    split = ds.train_test_split(test_size=0.1, seed=0)
+
+    def encode(batch_rows):
+        return Dataset.from_list(batch_rows).map(
+            lambda b: tok(b["text"], b["norm"], truncation=True, max_length=128),
+            batched=True,
+        )
+
+    train_rows, val_rows = split_by_group(rows)
     model = AutoModelForSequenceClassification.from_pretrained(args.base, num_labels=2)
     Trainer(
         model=model,
         processing_class=tok,
-        train_dataset=split["train"],
-        eval_dataset=split["test"],
+        train_dataset=encode(train_rows),
+        eval_dataset=encode(val_rows),
         args=TrainingArguments(
             output_dir=args.out,
             num_train_epochs=args.epochs,

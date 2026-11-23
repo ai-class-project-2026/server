@@ -2,7 +2,8 @@
 
     uv run python eval/moderation/score.py data/moderation/test_C_human/test.jsonl --label dict-v0
 
-Lines: {"text": "...", "label": 0 | 1, "type": "숫자 치환" (optional)}.
+Lines: {"text": "...", "label": 0 | 1, "type": "숫자 치환" (optional),
+"context": ["earlier message", ...] (optional, oldest first)}.
 Runs app.moderation.moderate() in-process, so it measures exactly what chat uses.
 Appends to eval/reports/moderation.csv.
 """
@@ -45,7 +46,10 @@ def main():
         json.loads(x) for x in Path(args.testset).read_text(encoding="utf-8").splitlines() if x.strip()
     ]
     t = time.perf_counter()
-    preds = [int(moderate(r["text"], level=args.level).is_profane) for r in rows]
+    preds = [
+        int(moderate(r["text"], r.get("context", ()), args.level).is_profane)
+        for r in rows
+    ]
     ms = (time.perf_counter() - t) * 1000 / max(len(rows), 1)
     labels = [r["label"] for r in rows]
     m = metrics(labels, preds) | {"n": len(rows), "ms_per_msg": round(ms, 2)}

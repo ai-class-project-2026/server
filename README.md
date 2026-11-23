@@ -70,7 +70,7 @@ WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggesti
 
 | 단계 | 명령 |
 |---|---|
-| 합성 대화 생성 (Claude API, `ANTHROPIC_API_KEY` 필요) | `uv run --group ml python ml/schedule/synth/generate.py --n 20 --out data/schedule/synth/try.jsonl` |
+| 합성 대화 생성 (Codex CLI 로그인 필요) | `uv run python ml/schedule/synth/generate.py --n 20 --out data/schedule/synth/try.jsonl` |
 | LoRA 학습 (Colab) | `ml/schedule/train_lora.py` 맨 위 주석 참고 |
 | 예측 | `uv run --group ml python eval/schedule/run.py <testset> preds.jsonl --target server\|claude` |
 | 채점 | `uv run python eval/schedule/score.py <testset> preds.jsonl --label v1` → `eval/reports/schedule.csv` |
