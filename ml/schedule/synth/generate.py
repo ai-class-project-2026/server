@@ -191,7 +191,7 @@ def agrees(record: dict, answer: dict) -> bool:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=40)
-    ap.add_argument("--out", default="data/schedule/synth/train.jsonl")
+    ap.add_argument("--out", default="data/schedule/synth/train_v2.jsonl")
     ap.add_argument("--model", default="gpt-6.1-sol")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=4)

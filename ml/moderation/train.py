@@ -43,6 +43,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--base", default="beomi/KcELECTRA-base-v2022")
     ap.add_argument("--epochs", type=float, default=3)
+    ap.add_argument("--context-boost", type=int, default=4, help="how many times rows with context appear in training")
     args = ap.parse_args()
 
     from datasets import Dataset
@@ -62,6 +63,7 @@ def main():
             file=sys.stderr,
         )
     for r in rows:
+        r["has_context"] = bool(r.get("context"))
         r["norm"] = second_segment(normalize(r["text"])[0], r.pop("context", []))
     tok = AutoTokenizer.from_pretrained(args.base)
 
@@ -72,6 +74,8 @@ def main():
         )
 
     train_rows, val_rows = split_by_group(rows)
+    # Chats with context are a small share of the data, so show them more often.
+    train_rows += [r for r in train_rows if r["has_context"]] * (args.context_boost - 1)
     model = AutoModelForSequenceClassification.from_pretrained(args.base, num_labels=2)
     Trainer(
         model=model,

@@ -22,6 +22,7 @@
 | [K-MHaS](https://github.com/adlnlp/K-MHaS) train, valid | [CC BY-SA 4.0](https://huggingface.co/datasets/jeanlee/kmhas_korean_hate_speech) | 학습 | Profanity=1, Not Hate=0 | 12,911 / 47,721 |
 | [BEEP!](https://github.com/kocohub/korean-hate-speech) | CC BY-SA 4.0 | 학습 | `none`만 정상으로 사용 | 0 / 3,646 |
 | [KOTOX](https://huggingface.co/datasets/ssgyejin/KOTOX) train, valid | MIT | 학습 | 명시적 욕이 있는 문장=1, 중립 문장과 그 변형=0 | 940 / 8,252 |
+| [Chatbot_data](https://github.com/songys/Chatbot_data) | MIT | 학습 | 일상 대화의 질문 문장만 정상으로 사용, 욕이 든 문장 제외 | 0 / 11,635 |
 | K-MHaS test | CC BY-SA 4.0 | 평가 A | 위와 같음 | 3,218 / 11,817 |
 | KOTOX test | MIT | 우회 평가 | 위와 같음 | 112 / 919 |
 | [UnSmile](https://github.com/smilegate-ai/korean_unsmile_dataset) | CC BY-NC-ND 4.0 | 평가 전용 | `악플/욕설`=1, `clean`=0 | 3,928 / 4,673 |
