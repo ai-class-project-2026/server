@@ -1,7 +1,10 @@
 import datetime as dt
 
+import logging
+
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import select, update
 
 from app.auth import CurrentUser
 from app.db.models import (
@@ -32,11 +35,21 @@ from app.schemas import (
 )
 
 router = APIRouter(tags=["calendar"])
+log = logging.getLogger(__name__)
 
 
 def _apply(obj, changes: dict) -> None:
     for k, v in changes.items():
         setattr(obj, k, v)
+
+
+def _reject_null(changes: dict, required: tuple[str, ...]) -> None:
+    """PATCH에서 null을 보내면 "지우기"인데, 꼭 있어야 하는 칸은 지울 수 없다. 저장 전에 422로 막는다."""
+    bad = [k for k in required if k in changes and changes[k] is None]
+    if bad:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"null not allowed: {', '.join(bad)}"
+        )
 
 
 # --- events ---
@@ -78,9 +91,9 @@ async def update_event(
     event_id: int, body: EventUpdate, user: CurrentUser, session: Session
 ):
     ev = await get_owned(session, Event, event_id, user)
-    _apply(
-        ev, body.model_dump(exclude_unset=True)
-    )  # explicit null clears start/location
+    changes = body.model_dump(exclude_unset=True)
+    _reject_null(changes, ("title", "date", "status", "attendees", "absent"))
+    _apply(ev, changes)  # explicit null clears start/location
     await session.commit()
     return ev
 
@@ -105,7 +118,13 @@ async def list_pending_suggestions(
         .where(AISuggestion.channel_id == channel_id, AISuggestion.action.is_(None))
         .order_by(AISuggestion.id)
     )
-    return [suggestion_out(s) for s in rows]
+    out = []
+    for s in rows:
+        try:
+            out.append(suggestion_out(s))
+        except ValidationError:  # 망가진 카드 하나 때문에 목록 전체가 500이 되면 안 된다
+            log.warning("skipping invalid stored suggestion %s", s.id)
+    return out
 
 
 @router.post("/suggestions/{suggestion_id}/action", response_model=SuggestionResult)
@@ -119,7 +138,21 @@ async def act_on_suggestion(
     if body.action is SuggestionAction.edited and body.event is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "edited needs event")
 
-    p = SuggestionPayload.model_validate(s.payload_json)
+    # 동시에 여러 번 눌러도 한 번만 성공하도록, "아직 답 안 한 카드"일 때만 먼저 차지한다.
+    # 이 UPDATE가 일정 변경과 같은 트랜잭션이라서, 진 요청은 아무것도 바꾸지 못하고 409가 된다.
+    claimed = await session.execute(
+        update(AISuggestion)
+        .where(AISuggestion.id == suggestion_id, AISuggestion.action.is_(None))
+        .values(action=body.action)
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Already handled")
+
+    try:
+        p = SuggestionPayload.model_validate(s.payload_json)
+    except ValidationError:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid card")
     fields = (
         body.event.model_dump()
         if body.event
@@ -137,14 +170,17 @@ async def act_on_suggestion(
             )
             session.add(ev)
         else:
-            ev = await session.get(Event, p.event_id)
-            if ev is None:
+            ev = p.event_id and await session.get(Event, p.event_id)
+            if not ev:
                 raise HTTPException(status.HTTP_410_GONE, "Event was deleted")
+            ch = await session.get(Channel, s.channel_id)
+            if ev.workspace_id != ch.workspace_id:  # 다른 워크스페이스의 일정은 건드릴 수 없다
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found")
             if p.kind is SuggestionKind.update:
                 _apply(ev, fields)
             else:
                 ev.status = EventStatus.cancelled
-    s.action = body.action
+    s.action = body.action  # 메모리의 값도 맞춰 둔다 (DB에는 위에서 이미 반영)
     await session.commit()
 
     out = SuggestionResult(
@@ -200,6 +236,7 @@ async def update_todo(
 ):
     todo = await get_owned(session, Todo, todo_id, user)
     changes = body.model_dump(exclude_unset=True)
+    _reject_null(changes, ("title", "done"))
     if "assignee_id" in changes:
         await _check_assignee(session, todo.workspace_id, changes["assignee_id"])
     _apply(todo, changes)

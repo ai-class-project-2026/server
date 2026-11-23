@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.auth import hash_password
 from app.db.models import Channel, Event, Member, Message, Role, Todo, User, Workspace
 from app.db.session import SessionLocal
+from app.schedule.prompt import KST
 
 NAMES = {"민준": "minjun", "서연": "seoyeon", "지호": "jiho", "하은": "haeun"}
 CHAT = [
@@ -49,7 +50,7 @@ async def main():
         await s.flush()
         for name, text in CHAT:
             s.add(Message(channel_id=ch.id, user_id=users[name].id, text=text))
-        today = dt.date.today()
+        today = dt.datetime.now(KST).date()  # 한국 날짜 기준
         s.add_all(
             [
                 Event(

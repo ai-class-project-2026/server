@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path[:0] = ["backend", "ml/common"]
 os.environ.setdefault("JWT_SECRET", "training-only-placeholder-secret-000")
-from app.schedule.prompt import build_messages
+from app.schedule.prompt import build_messages, to_kst
 from app.schemas import ScheduleRequest
 from dateparse_ko import parse
 
@@ -67,13 +67,22 @@ def repair_v1(r: dict, rng: random.Random) -> dict:
 
 def valid(r: dict) -> bool:
     try:
-        build_messages(ScheduleRequest.model_validate(r))
+        req = ScheduleRequest.model_validate(r)
+        build_messages(req)
     except ValueError:
         return False
     if {t["speaker"] for t in r["dialogue"]} - set(r["participants"]):
         return False
-    ref = dt.date.fromisoformat(r["ref_datetime"][:10])
-    found = {m.date.isoformat() for t in r["dialogue"] for m in parse(t["text"], ref) if m.date}
+    # 서빙(prompt.py)과 같은 규칙: 말한 시각(ts, 없으면 ref_datetime)을 한국 시각으로 바꾼 날짜 기준
+    ref = to_kst(dt.datetime.fromisoformat(r["ref_datetime"]))
+    found = {
+        m.date.isoformat()
+        for t in r["dialogue"]
+        for m in parse(t["text"], to_kst(dt.datetime.fromisoformat(t["ts"]) if t.get("ts") else ref).date())
+        if m.date
+    }
+    # 서빙 때 모델은 기존 일정(existing_events)도 보므로, 그 날짜도 "근거가 있는 날짜"다
+    found |= {e.date.isoformat() for e in req.existing_events}
     return all(e["date"] in found for e in r["events"])
 
 
@@ -124,6 +133,21 @@ def demo():
     assert useful_v1(r) and not useful_v1(r | {"type": "revise"})
     done = {"speaker": "민준", "text": "금 7시 확정!", "ts": turn["ts"]}
     assert not useful_v1(r | {"type": "confirm", "dialogue": [done]})
+    # 자정을 넘기는 대화: 23:59의 "내일"은 다음 날(1/1)이어야 하고, ref를 UTC로 적어도 결과가 같다
+    mid = {"type": "confirm", "participants": ["민준", "서연"], "existing_events": [],
+           "events": [ev | {"date": "2027-01-01", "status": "confirmed", "attendees": ["민준", "서연"]}],
+           "dialogue": [{"speaker": "민준", "text": "내일 7시에 보자", "ts": "2026-12-31T23:59:00+09:00"},
+                        {"speaker": "서연", "text": "좋아", "ts": "2027-01-01T00:03:00+09:00"}]}  # fmt: skip
+    for ref in ("2027-01-01T00:05:00+09:00", "2026-12-31T15:05:00Z"):
+        assert valid(mid | {"ref_datetime": ref})
+    assert not valid(mid | {"ref_datetime": ref, "events": [ev | {"date": "2027-01-03"}]})
+    # 옛 일정의 날짜가 대화에는 없고 기존 일정에만 있어도(수정 대화) 통과한다. 어디에도 없는 날짜는 탈락
+    old = {"title": "회의", "date": "2026-11-09", "start": "19:00", "location": None, "status": "confirmed",
+           "attendees": [], "absent": []}  # fmt: skip
+    rev = {"type": "revise", "ref_datetime": "2026-11-05T21:00:00+09:00", "participants": ["민준"], "existing_events": [old],
+           "dialogue": [{"speaker": "민준", "text": "11/17에 하자", "ts": "2026-11-05T21:00:00+09:00"}],
+           "events": [old | {"status": "rejected"}, old | {"date": "2026-11-17"}]}  # fmt: skip
+    assert valid(rev) and not valid(rev | {"existing_events": []})
     print("ok")
 
 

@@ -27,12 +27,20 @@ def create_token(user_id: int) -> str:
     return jwt.encode({"sub": str(user_id), "exp": exp}, settings.jwt_secret, "HS256")
 
 
-async def user_from_token(token: str, session: AsyncSession) -> User:
-    """Shared by HTTP and WebSocket (which passes the token as a query param)."""
+def token_claims(token: object) -> tuple[int, float]:
+    """토큰에서 (사용자 id, 만료 시각[epoch 초])을 꺼낸다. 잘못된 토큰이면 401."""
     try:
-        user_id = int(jwt.decode(token, settings.jwt_secret, ["HS256"])["sub"])
-    except (jwt.InvalidTokenError, KeyError, ValueError):
+        claims = jwt.decode(
+            token, settings.jwt_secret, ["HS256"], options={"require": ["exp"]}
+        )
+        return int(claims["sub"]), float(claims["exp"])
+    except (jwt.InvalidTokenError, KeyError, ValueError, TypeError):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+
+
+async def user_from_token(token: str, session: AsyncSession) -> User:
+    """Shared by HTTP and WebSocket (WebSocket sends the token in its first frame)."""
+    user_id, _ = token_claims(token)
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")

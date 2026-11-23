@@ -1,12 +1,20 @@
+import datetime as dt
 import secrets
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert
 
 from app.auth import CurrentUser
 from app.db.models import Channel, Member, Role, User, Workspace
 from app.deps import Session, require_member
-from app.schemas import MemberOut, WorkspaceCreate, WorkspaceOut, WorkspaceUpdate
+from app.schemas import (
+    InvitePreview,
+    MemberOut,
+    WorkspaceCreate,
+    WorkspaceOut,
+    WorkspaceUpdate,
+)
 
 router = APIRouter(tags=["workspaces"])
 
@@ -16,6 +24,8 @@ async def create_workspace(body: WorkspaceCreate, user: CurrentUser, session: Se
     ws = Workspace(
         name=body.name,
         ai_schedule_on=body.ai_schedule_on,
+        # AI를 켠 시각: 이 시각 이후의 메시지만 AI가 본다
+        ai_enabled_at=dt.datetime.now(dt.UTC) if body.ai_schedule_on else None,
         invite_code=secrets.token_urlsafe(8),
     )
     session.add(ws)
@@ -52,8 +62,13 @@ async def update_workspace(
 ):
     await require_member(session, workspace_id, user, Role.owner)
     ws = await session.get(Workspace, workspace_id)
+    was_on = ws.ai_schedule_on
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(ws, k, v)
+    if ws.ai_schedule_on and not was_on:  # 꺼짐 → 켜짐: 이 시각부터의 대화만 분석한다
+        ws.ai_enabled_at = dt.datetime.now(dt.UTC)
+    elif not ws.ai_schedule_on:
+        ws.ai_enabled_at = None
     await session.commit()
     return ws
 
@@ -70,12 +85,25 @@ async def list_members(workspace_id: int, user: CurrentUser, session: Session):
     return [MemberOut(user_id=uid, name=name, role=role) for uid, name, role in rows]
 
 
+@router.get("/invites/{code}", response_model=InvitePreview)
+async def preview_invite(code: str, user: CurrentUser, session: Session):
+    """초대 페이지용: 가입하지 않고 워크스페이스 이름과 AI 사용 여부만 보여 준다."""
+    ws = await session.scalar(select(Workspace).where(Workspace.invite_code == code))
+    if ws is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invalid invite code")
+    return ws
+
+
 @router.post("/invites/{code}", response_model=WorkspaceOut)
 async def join_by_invite(code: str, user: CurrentUser, session: Session):
     ws = await session.scalar(select(Workspace).where(Workspace.invite_code == code))
     if ws is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invalid invite code")
-    if await session.get(Member, (ws.id, user.id)) is None:
-        session.add(Member(workspace_id=ws.id, user_id=user.id))
-        await session.commit()
+    # 여러 탭이 동시에 들어와도 안 터지게: 이미 멤버면 그냥 넘어간다 (있으면 무시하는 INSERT).
+    await session.execute(
+        insert(Member)
+        .values(workspace_id=ws.id, user_id=user.id, role=Role.member)
+        .on_conflict_do_nothing()
+    )
+    await session.commit()
     return ws

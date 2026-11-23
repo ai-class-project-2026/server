@@ -19,8 +19,16 @@ from app.schemas import (
 
 
 def _api_key(x_api_key: Annotated[str, Header()] = "") -> None:
-    if settings.ai_api_key and not secrets.compare_digest(
-        x_api_key, settings.ai_api_key
+    if not settings.ai_api_key:
+        # 키를 안 정했으면 닫아 둔다. 개발할 때만 ALLOW_OPEN_AI_API=1 (make dev)로 연다.
+        if not settings.allow_open_ai_api:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "AI_API_KEY is not configured"
+            )
+        return
+    # 비ASCII 글자가 있어도 터지지 않게 바이트로 비교한다 (헤더는 latin-1로 읽힌다).
+    if not secrets.compare_digest(
+        x_api_key.encode("latin-1"), settings.ai_api_key.encode("utf-8")
     ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Bad X-API-Key")
 

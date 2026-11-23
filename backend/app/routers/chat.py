@@ -1,24 +1,32 @@
+import asyncio
+import datetime as dt
+import json
+import time
+
 from fastapi import (
     APIRouter,
     HTTPException,
     Query,
     WebSocket,
-    WebSocketDisconnect,
     status,
 )
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import IntegrityError
 
 from app import auth
 from app.auth import CurrentUser
+from app.db import session as db
 from app.db.models import Channel, Message, Report, User, Workspace
 from app.deps import Session, get_owned, require_member
 from app.moderation import moderate
-from app.realtime import hub
+from app.realtime import Conn, hub
 from app.schedule import pipeline
 from app.schemas import ChannelIn, ChannelOut, MessageIn, MessageOut, ReportIn
 
 router = APIRouter(tags=["chat"])
+AUTH_TIMEOUT = 5  # 소켓을 연 뒤 첫 인증 프레임을 기다리는 시간(초)
 
 
 @router.get("/workspaces/{workspace_id}/channels", response_model=list[ChannelOut])
@@ -52,6 +60,17 @@ def _out(m: Message, user_name: str) -> MessageOut:
         created_at=m.created_at,
         is_profane=m.is_profane,
         profanity_spans=m.profanity_spans,
+        client_id=m.client_id,
+    )
+
+
+async def _same_client_id(session, channel_id: int, user_id: int, client_id: str):
+    return await session.scalar(
+        select(Message).where(
+            Message.channel_id == channel_id,
+            Message.user_id == user_id,
+            Message.client_id == client_id,
+        )
     )
 
 
@@ -79,6 +98,10 @@ async def send_message(
     channel_id: int, body: MessageIn, user: CurrentUser, session: Session
 ):
     channel = await get_owned(session, Channel, channel_id, user)
+    user_id, user_name = user.id, user.name  # rollback 뒤에는 user 값이 만료되어 읽을 수 없으니 미리 꺼내 둔다
+    if body.client_id:  # 응답을 못 받고 다시 보낸 경우: 기존 메시지를 그대로 돌려준다 (방송/AI 없음)
+        if prior := await _same_client_id(session, channel_id, user_id, body.client_id):
+            return _out(prior, user_name)
     ws = await session.get(Workspace, channel.workspace_id)
     context = list(
         await session.scalars(
@@ -92,54 +115,115 @@ async def send_message(
     res = await run_in_threadpool(moderate, body.text, context, ws.filter_level)
     msg = Message(
         channel_id=channel_id,
-        user_id=user.id,
+        user_id=user_id,
         text=body.text,
+        # AI 동의 시각(ai_enabled_at)과 정확히 비교하려고 DB 기본값(초 단위) 대신 직접 넣는다
+        created_at=dt.datetime.now(dt.UTC),
+        client_id=body.client_id,
         is_profane=res.is_profane,
         profanity_score=res.score,
         profanity_spans=res.spans,
         model_version=res.model_version,
     )
     session.add(msg)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # 같은 client_id가 동시에 들어와 다른 요청이 먼저 저장했다
+        await session.rollback()
+        prior = body.client_id and await _same_client_id(
+            session, channel_id, user_id, body.client_id
+        )
+        if not prior:
+            raise
+        return _out(prior, user_name)
     await session.refresh(msg)
-    out = _out(msg, user.name)
+    out = _out(msg, user_name)
     await hub.broadcast(channel_id, "message", out.model_dump(mode="json"))
     if ws.ai_schedule_on:
         pipeline.notify(channel_id)
     return out
 
 
+async def _ws_close(websocket: WebSocket) -> None:
+    try:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    except Exception:  # noqa: BLE001 - 이미 끊긴 소켓
+        pass
+
+
+async def _ws_auth(websocket: WebSocket, channel_id: int) -> tuple[int, float] | None:
+    """첫 프레임 {"type":"auth","token":...}을 기다려 검사한다. 통과하면 (사용자 id, 만료 시각)."""
+    try:
+        msg = await asyncio.wait_for(websocket.receive(), AUTH_TIMEOUT)
+        first = json.loads(msg["text"])
+        if first["type"] != "auth":
+            return None
+        user_id, exp = auth.token_claims(first["token"])
+        async with db.SessionLocal() as session:
+            user = await auth.user_from_token(first["token"], session)
+            await get_owned(session, Channel, channel_id, user)  # 없는 채널/비멤버는 둘 다 실패
+    except (
+        TimeoutError,
+        HTTPException,
+        KeyError,
+        TypeError,
+        ValueError,  # JSON 오류도 여기 포함
+    ):
+        return None
+    return user_id, exp
+
+
 @router.websocket("/ws/channels/{channel_id}")
-async def channel_socket(
-    websocket: WebSocket, channel_id: int, token: str, session: Session
-):
+async def channel_socket(websocket: WebSocket, channel_id: int):
     """Receive-only: server pushes {"type": "message" | "suggestion" |
     "suggestion_resolved", "data": ...}. Send messages with POST.
-    Browsers can't set headers on WebSocket, so the JWT comes as ?token=."""
-    try:
-        user = await auth.user_from_token(token, session)
-        await get_owned(session, Channel, channel_id, user)
-    except HTTPException:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    finally:
-        await session.close()  # don't hold a DB connection for the socket's lifetime
+    URL에 토큰을 넣으면 접속 로그에 남아서, 연결한 뒤 첫 프레임으로 인증한다:
+    client → {"type": "auth", "token": "<JWT>"} (5초 안에), server → {"type": "ready"}.
+    실패하면 연결을 받은 뒤 1008로 닫는다(네트워크 오류와 구분하려고). 토큰이 만료되면 1008로 닫는다."""
     await websocket.accept()
-    hub.rooms[channel_id].add(websocket)
+    claims = await _ws_auth(websocket, channel_id)
+    if claims is None:
+        await _ws_close(websocket)
+        return
+    user_id, exp = claims
+    conn = Conn(websocket, user_id, exp)
     try:
+        await websocket.send_json({"type": "ready"})
+        hub.add(channel_id, conn)
         while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
+            remaining = exp - time.time()
+            if remaining <= 0:
+                await _ws_close(websocket)
+                return
+            try:
+                msg = await asyncio.wait_for(websocket.receive(), remaining)
+            except TimeoutError:
+                continue  # 만료 시각이 됐다: 위에서 닫는다
+            if msg["type"] == "websocket.disconnect":
+                return
+    except Exception:  # noqa: BLE001 - 보내기/받기 중 끊김
         pass
     finally:
-        hub.rooms[channel_id].discard(websocket)
+        hub.discard(channel_id, conn)
 
 
 @router.post("/reports", status_code=201)
 async def report(body: ReportIn, user: CurrentUser, session: Session) -> dict[str, int]:
     """False positive / missed profanity → retraining data (plan 9)."""
     await get_owned(session, Message, body.message_id, user)
-    r = Report(message_id=body.message_id, user_id=user.id, type=body.type)
-    session.add(r)
+    # 같은 사람이 같은 메시지에 같은 종류로 또 신고하면 새로 만들지 않고 기존 신고를 돌려준다
+    await session.execute(
+        insert(Report)
+        .values(message_id=body.message_id, user_id=user.id, type=body.type)
+        .on_conflict_do_nothing()
+    )
     await session.commit()
-    return {"id": r.id}
+    rid = await session.scalar(
+        select(Report.id).where(
+            Report.message_id == body.message_id,
+            Report.user_id == user.id,
+            Report.type == body.type,
+        )
+    )
+    return {"id": rid}

@@ -29,6 +29,25 @@ CODA_GROUPS = ["ㄱㄲㅋ", "ㅂㅍ", "ㅅㅆㄷㅈㅊㅌ"]
 # only on the last syllable, where it reads like a joke spelling (병신 → 병싱)
 LAST_CODA = {"ㄴ": "ㅇ"}
 
+# 글자를 바꿔서 이 단어가 되면 안 돼요 (창녀 → 장녀: 멀쩡한 말인데 라벨이 1로 남아요).
+# gen_soundalike.py도 이 목록으로 사전에서 빼므로 둘이 같은 목록을 써요.
+# 테스트에서 새로 찾으면 여기에 더해요.
+NOT_BAD = {
+    "장녀", "장년", "정녀", "세기", "새기", "세끼", "쐐기", "변신", "평신", "거저",
+    "까져", "게놈", "에미", "병진", "병선", "촌나", "닦쳐", "색스", "턱쳐",
+    "따따이", "또라히", "캐년", "시뻘", "풍신", "상년", "엠청", "거져", "병승",
+    # "딱 쳐다봤다" → 딱쳐다봤다 (a 1-letter word loses its space in normalize)
+    "딱쳐", "딲쳐", "탁쳐", "떡쳐", "전너", "전냐",
+    # "좋더라이거" written without spaces
+    "더라이", "더라의", "더라으", "더라위", "더랴이", "더러이",
+    # 하게서리 / 시계소리 / 달달이 / 판도라의: 멀쩡한 말 속에 들어 있어요
+    "게서리", "계소리", "달달이", "도라의",
+    # 서비스발표처럼 "스 발"이 붙은 말, "가고 싶년 ..." 같은 오타와 띄어쓰기 없는 글
+    "스발", "싶년",
+    # "올 게 년말에"(한 글자 뒤 띄어쓰기가 지워져요), "김씨뻘 친척"
+    "게년", "씨뻘",
+}  # fmt: skip
+
 
 def is_syllable(c: str) -> bool:
     return "가" <= c <= "힣"
@@ -70,10 +89,31 @@ def word_variants(word: str, max_changes: int = 2) -> set[str]:
     return out
 
 
+_LONGEST = max(map(len, NOT_BAD))
+_BY_FIRST: dict[str, list[str]] = {}
+for _w in NOT_BAD:
+    _BY_FIRST.setdefault(_w[0], []).append(_w)
+
+
+def makes_normal_word(old: str, new: str, i: int) -> bool:
+    """old[i]를 바꿔서 new가 되었을 때, 없던 NOT_BAD 단어가 생겼으면 True."""
+    lo = max(0, i - _LONGEST + 1)
+    before, after = old[lo : i + _LONGEST], new[lo : i + _LONGEST]
+    # 글자 구간에 나온 글자로 시작하는 단어만 확인해요 (매번 모든 단어를 보지 않도록)
+    return any(w in after and w not in before for c in set(after) for w in _BY_FIRST.get(c, ()))
+
+
 def similar_sound(text: str, rng: random.Random) -> str:
-    """Augmentation rule: swap one hangul syllable for a similar-sounding one."""
-    spots = [i for i, c in enumerate(text) if is_syllable(c) and syllable_variants(c)]
-    if not spots:  # e.g. only 뭐, 응: nothing sounds close
+    """증강 규칙: 한글 한 글자를 비슷한 소리로 바꿔요.
+    멀쩡한 단어가 되는 바꾸기(창녀 → 장녀)는 쓰지 않아요. 라벨이 틀어져요."""
+    options = [
+        (i, v)
+        for i, c in enumerate(text)
+        if is_syllable(c)
+        for v in syllable_variants(c)
+        if not makes_normal_word(text, text[:i] + v + text[i + 1 :], i)
+    ]
+    if not options:  # e.g. only 뭐, 응: nothing sounds close
         return text
-    i = rng.choice(spots)
-    return text[:i] + rng.choice(syllable_variants(text[i])) + text[i + 1 :]
+    i, v = rng.choice(options)
+    return text[:i] + v + text[i + 1 :]
