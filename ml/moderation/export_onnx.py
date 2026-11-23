@@ -1,7 +1,7 @@
 """Trained model folder → model.onnx + tokenizer, for app/moderation/classifier.py.
 
-    !pip install -q "optimum[onnxruntime]"
-    !python ml/moderation/export_onnx.py kcelectra-v1 onnx-v1
+    uv pip install "optimum[onnxruntime]"
+    uv run python ml/moderation/export_onnx.py kcelectra-v1 onnx-v1
 
 Then copy onnx-v1/ to the server and set MODERATION_ONNX_PATH=onnx-v1.
 """

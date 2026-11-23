@@ -1,9 +1,11 @@
 """QLoRA fine-tune of a small instruct model on the synthetic chats (plan 8.7).
-Run on Colab (T4/L4). Not part of the server's dependencies:
+Run on a GPU machine. The training packages are not server dependencies:
 
-    !git clone <server repo> && cd server
-    !pip install -q "transformers>=4.46" "trl>=0.12" peft bitsandbytes datasets accelerate pydantic dateparse
-    !python ml/schedule/train_lora.py --data data/schedule/synth/train.jsonl --out lora-v1
+    git clone <server repo> && cd server
+    uv sync  # the training code imports the app package
+    uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+    uv pip install "transformers>=4.46" "trl>=0.12" peft bitsandbytes datasets accelerate
+    uv run python ml/schedule/train_lora.py --data data/schedule/synth/train.jsonl --out lora-v1
 
 Then serve: merge the adapter, convert to GGUF (llama.cpp convert_hf_to_gguf.py,
 q4_K_M), run `llama-server -m model.gguf --port 8080`, and set
