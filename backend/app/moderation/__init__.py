@@ -31,7 +31,7 @@ def _span(text: str, index_map: list[int], s: int, e: int) -> list[int]:
 
 def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationResult:
     norm, index_map = normalize.normalize(text)
-    spans = [_span(text, index_map, s, e) for s, e in dict_filter.find(norm)]
+    spans = [_span(text, index_map, s, e) for s, e in dict_filter.find(norm, text, index_map)]
     if spans:  # dictionary hit = certain
         return ModerationResult(True, 1.0, spans, norm, "dict")
     score = classifier.score(text, norm, context)

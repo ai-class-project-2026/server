@@ -40,9 +40,35 @@ def _scan(norm: str, groups: dict[str, list[str]]):
             yield from _find_all(norm, w)
 
 
-def find(norm: str) -> list[tuple[int, int]]:
-    """Spans in the normalized text, minus those inside a whitelist word."""
+def _space_removed(text: str, index_map: list[int], norm: str, i: int) -> bool:
+    """normalize() dropped a space between norm[i-1] and norm[i] ("시 발" → 시발)."""
+    if norm[i - 1] == " " or norm[i] == " ":
+        return False
+    return any(c.isspace() for c in text[index_map[i - 1] + 1 : index_map[i]])
+
+
+def _grabs_one_letter(text: str, index_map: list[int], norm: str, s: int, e: int) -> bool:
+    """The hit crosses a dropped space and takes only the first letter of a longer
+    word after it: "언니 애 미술" → 애미술 has 애미, but 미 belongs to 미술.
+    "니 애미야" (takes 애미 of 애미야) and "시 발" (takes all of 발) still count."""
+    for i in range(s + 1, e):
+        if not _space_removed(text, index_map, norm, i):
+            continue
+        end = i + 1  # end of the original word that starts at norm[i]
+        while end < len(norm) and norm[end] != " " and not _space_removed(text, index_map, norm, end):
+            end += 1
+        if e - i == 1 and end - i >= 2:
+            return True
+    return False
+
+
+def find(norm: str, text: str = "", index_map: list[int] = ()) -> list[tuple[int, int]]:
+    """Spans in the normalized text, minus those inside a whitelist word. Pass the
+    original text and index_map to also skip hits made only by a dropped space."""
     allowed = list(_scan(norm, _WHITE))
     return sorted(
-        (s, e) for s, e in _scan(norm, _BAD) if not any(a <= s and e <= b for a, b in allowed)
+        (s, e)
+        for s, e in _scan(norm, _BAD)
+        if not any(a <= s and e <= b for a, b in allowed)
+        and not (text and _grabs_one_letter(text, index_map, norm, s, e))
     )
