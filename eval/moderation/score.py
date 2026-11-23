@@ -43,7 +43,7 @@ def main():
     args = ap.parse_args()
 
     rows = [
-        json.loads(x) for x in Path(args.testset).read_text().splitlines() if x.strip()
+        json.loads(x) for x in Path(args.testset).read_text(encoding="utf-8").splitlines() if x.strip()
     ]
     t = time.perf_counter()
     preds = [
@@ -65,7 +65,7 @@ def main():
     report = Path(args.report)
     report.parent.mkdir(parents=True, exist_ok=True)
     new = not report.exists()
-    with report.open("a", newline="") as f:
+    with report.open("a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if new:
             w.writerow(
