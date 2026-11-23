@@ -22,6 +22,7 @@ Kinds:
 
 import argparse
 import collections
+import difflib
 import json
 import random
 import re
@@ -145,6 +146,18 @@ def gives_it_away(kind: str, text: str, context: list[str]) -> bool:
     return kind == "reply" and "욕" in text
 
 
+def is_repeat(kind: str, rows: list[dict], seen: dict) -> bool:
+    """Replies and everyday chat tend to come out alike, so keep one of each."""
+    if kind not in ("reply", "clean"):
+        return False
+    text = re.sub(r"[\W_]", "", rows[0]["text"])
+    # ponytail: compares against every kept row, fine for a few thousand rows
+    if difflib.get_close_matches(text, seen[kind], n=1, cutoff=0.8):
+        return True
+    seen[kind].append(text)
+    return False
+
+
 def to_rows(sc: dict, a: dict) -> list[dict]:
     """Answer → labeled rows, or [] when it doesn't fit the scenario."""
     text = a["text"].strip()
@@ -161,6 +174,8 @@ def to_rows(sc: dict, a: dict) -> list[dict]:
         if not text or text in context or not low <= len(context) <= 3:
             return []
         if gives_it_away(sc["kind"], text, context):
+            return []
+        if re.search("[\u3400-\u9fff]", text + "".join(context)):  # students don't type hanja
             return []
         rows.append({"text": text, "context": context, "label": label})
     return rows
@@ -180,12 +195,14 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--chunk", type=int, default=100)
+    ap.add_argument("--rows", type=int, default=0, help="stop at this many rows (0 = use all scenarios)")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
     todo = [make(rng) for _ in range(args.n)]
     kept = tokens_in = tokens_out = 0
     why = collections.Counter()
+    seen = collections.defaultdict(list)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
 
     def spend(usage):
@@ -216,14 +233,16 @@ def main():
                 spend(usage)
                 right[i] += bool(answer) and answer["label"] == row["label"]
             for i, (kind, rows) in enumerate(written):
-                if right[i] == len(rows):
+                if right[i] != len(rows):
+                    why[f"judge disagrees: {kind}"] += 1
+                elif is_repeat(kind, rows, seen):
+                    why[f"repeat: {kind}"] += 1
+                elif not args.rows or kept < args.rows:
                     f.write("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
                     kept += len(rows)
-                else:
-                    why[f"judge disagrees: {kind}"] += 1
             f.flush()
             print(f"{min(start + args.chunk, len(todo))}/{len(todo)} scenarios, kept {kept} rows", flush=True)
-            if ask_all.stopped:
+            if ask_all.stopped or (args.rows and kept >= args.rows):
                 break
     print(f"kept {kept} rows, dropped {dict(why)}, tokens in {tokens_in} out {tokens_out} → {args.out}")
     if ask_all.stopped:
@@ -247,6 +266,13 @@ def demo():
     assert to_rows({"kind": "reply"}, {"text": "욕 그만해", "context": ["시1발"]}) == []
     assert to_rows({"kind": "reply"}, {"text": "일단 밥 먹자", "context": ["시1발"]})[0]["label"] == 0
     assert to_rows(sc, a | {"clean_context": ["이름 첫 글자만 따자"]}) == []  # invented abbreviation
+    assert to_rows(sc, a | {"clean_context": ["始發 어케 읽음"]}) == []  # hanja
+    seen = collections.defaultdict(list)
+    one = [{"text": "일단 파일 올려. 내가 합칠게", "context": [], "label": 0}]
+    near = [{"text": "일단 파일부터 올려. 내가 합칠게", "context": [], "label": 0}]
+    other = [{"text": "오늘 저녁 뭐 먹지", "context": [], "label": 0}]
+    assert not is_repeat("reply", one, seen) and is_repeat("reply", near, seen)
+    assert not is_repeat("reply", other, seen) and not is_repeat("pair", near, seen)
     prompt = judge_prompt((0, {"text": "ㅅㅂ", "context": ["또 늦냐"], "label": 1}))
     assert "판정할 메시지: ㅅㅂ" in prompt and "- 또 늦냐" in prompt and "label" not in prompt
     rng = random.Random(0)
