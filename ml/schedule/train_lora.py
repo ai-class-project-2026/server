@@ -80,6 +80,7 @@ def main():
             output_dir=args.out,
             num_train_epochs=args.epochs,
             per_device_train_batch_size=2,
+            per_device_eval_batch_size=2,  # the default 8 nearly fills a 16GB GPU on long chats
             gradient_accumulation_steps=8,
             learning_rate=2e-4,
             max_length=2048,
