@@ -306,6 +306,118 @@ BUILDERS = {
 }
 
 
+# 짧은 대화(2~4턴): 모임 이름이나 장소, 시간까지 생략하고 ㅇㅋ로 끝나는 실제 단톡 말투
+NOUNS = [("목", "목이 아픈 얘기"), ("화", "화가 난 얘기"), ("금", "금값이나 금 목걸이 얘기"),
+         ("수", "수학 문제의 수 얘기"), ("일", "할 일이 많다는 얘기"), ("토", "속이 안 좋아 토할 것 같다는 얘기")]  # fmt: skip
+
+
+def _quiet(ref, rng, used, title="모임", has_time=True) -> dict:
+    s = _slot(ref, rng, used, title) | {"place": None, "say_place": None}
+    return s if has_time else s | {"start": None, "time_text": None, "say_time": ""}
+
+
+def _when(s: dict) -> str:
+    return f"'{s['say_date']}'" + (f" '{s['say_time']}'" if s["say_time"] else "")
+
+
+def _said(*slots) -> list[str]:
+    return [x for s in slots for x in (s["say_date"], s["say_time"]) if x]
+
+
+def _short_confirm(ref, p, rng, used):
+    s = _quiet(ref, rng, used)
+    beats = [f"{p[0]}: {_when(s)}에 보자고 아주 짧게 제안. 무슨 모임인지와 장소는 말하지 않음", f"{p[1]}: 한두 글자로 동의"]
+    if rng.random() < 0.6:
+        beats.append(f"{p[2]}: 한두 글자로 동의")
+    return beats, [_event(s, "confirmed", p)], [], _said(s), False
+
+
+def _short_proposal(ref, p, rng, used):
+    s = _quiet(ref, rng, used, has_time=rng.random() > 0.6)
+    reply = rng.choice(["아직 모르겠다고 함", "학원 시간을 봐야 안다고 함", "물어보고 말해주겠다고 함", "생각해보겠다고 함"])
+    beats = [f"{p[0]}: {_when(s)}에 볼지 짧게 물어봄. 무슨 모임인지와 장소는 말하지 않음",
+             f"{p[1]}: {reply}. 동의나 거절은 하지 않음", "아무도 결론을 내지 않고 끝남"]  # fmt: skip
+    return beats, [_event(s, "proposed", p)], [], _said(s), False
+
+
+def _short_revise(ref, p, rng, used):
+    old = _quiet(ref, rng, used)
+    while True:
+        start, time_text, say = _say_time(rng)
+        if start and start != old["start"]:
+            break
+    if rng.random() < 0.6 and old["start"]:  # 같은 날 시간만 바꾼다
+        new = old | {"start": start, "time_text": time_text, "say_time": say}
+        said = [old["say_date"], old["say_time"], say]
+        how = f"'{say}'"
+    else:
+        new = _quiet(ref, rng, used)
+        said = _said(old, new)
+        how = _when(new)
+    beats = [f"{p[0]}: {_when(old)}에 보자고 짧게 제안", f"{p[1]}: 그때는 어렵다며 {how}은 어떠냐고 함", f"{p[2]}: 짧게 동의"]
+    return beats, [_event(old, "rejected"), _event(new, "confirmed", p)], [], said, False
+
+
+def _short_absent(ref, p, rng, used):
+    s = _quiet(ref, rng, used)
+    beats = [f"{p[0]}: {_when(s)}에 보자고 짧게 제안", f"{p[1]}: 짧게 동의", f"{p[2]}: 자기는 못 가니 둘이 하라고 함"]
+    return beats, [_event(s, "confirmed", p[:2], [p[2]])], [], _said(s), False
+
+
+def _short_cancel(ref, p, rng, used):
+    s = _quiet(ref, rng, used, rng.choice(TITLES))
+    old = _event(s, "confirmed", p)
+    beats = [f"{p[0]}: '{s['say_date']}' '{s['title']}' 없애자고 짧게 말함. 시간은 말하지 않음", f"{p[1]}: 짧게 동의"]
+    return beats, [_event(s, "cancelled", p)], [old], [s["say_date"], s["title"]], False
+
+
+def _short_reschedule(ref, p, rng, used):
+    title = rng.choice(TITLES)
+    old, new = _quiet(ref, rng, used, title), _quiet(ref, rng, used, title)
+    new |= {"start": old["start"], "time_text": old["time_text"], "say_time": old["say_time"]}
+    beats = [f"{p[0]}: '{old['say_date']}' '{title}'을 '{new['say_date']}'로 옮기자고 함. 시간은 그대로라고 말함", f"{p[1]}: 짧게 동의", f"{p[2]}: 짧게 동의"]
+    return beats, [_event(old, "rejected"), _event(new, "confirmed", p)], [_event(old, "confirmed", p)], [old["say_date"], title, new["say_date"]], False
+
+
+def _short_noun(ref, p, rng, used):
+    word, topic = rng.choice(NOUNS)
+    return [f"{p[0]}: '{word}' 글자를 요일이 아닌 뜻으로 써서 {topic}을 함", f"{p[1]}: 짧게 맞장구"], [], [], [word], False
+
+
+SHORT = {  # builder, weight
+    "proposal_only": (_short_proposal, 4), "revise": (_short_revise, 3), "confirm": (_short_confirm, 2),
+    "partial_absent": (_short_absent, 2), "reschedule": (_short_reschedule, 2), "cancel": (_short_cancel, 1),
+    "not_schedule": (_short_noun, 2),
+}  # fmt: skip
+
+
+def make_short(rng: random.Random) -> dict:
+    """2~4턴짜리 짧은 대화. 기본 시나리오에 없는 말투를 채운다."""
+    ref = dt.date(2026, 3, 1) + dt.timedelta(days=rng.randint(0, 305))
+    people = rng.sample(NAMES, 3)
+    kind = rng.choices(list(SHORT), weights=[w for _, w in SHORT.values()])[0]
+    used: set = set()
+    beats, events, existing, must, says_confirm = SHORT[kind][0](ref, people, rng, used)
+    return {
+        "type": kind,
+        "ref_date": ref.isoformat(),
+        "participants": people,
+        "beats": beats,
+        "must": must,
+        "says_confirm": says_confirm,
+        "events": events,
+        "existing_events": existing,
+        "style": rng.choice(STYLES),
+        "small_talk": None,
+        "agree_words": rng.sample(AGREE, 4),
+        "turns": rng.randint(2, 4),
+        "min_turns": 2,
+        "max_turns": 5,
+        "start_minute": rng.randint(8 * 60, 22 * 60),
+        "gaps": [rng.randint(0, 4) for _ in range(40)],
+    }
+
+
 def _unrelated_events(ref, people, rng, used, taken) -> list[dict]:
     """Calendar entries the chat never talks about. The model must leave them alone."""
     titles = [t for t in TITLES if t not in taken]

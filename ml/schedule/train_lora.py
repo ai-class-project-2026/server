@@ -40,6 +40,7 @@ def main():
     ap.add_argument("--base", default="Qwen/Qwen2.5-3B-Instruct")
     ap.add_argument("--epochs", type=float, default=2)
     ap.add_argument("--no-4bit", action="store_true", help="train on full bf16 weights (needs a 24GB GPU)")
+    ap.add_argument("--seed", type=int, default=42, help="training seed; the val split stays fixed")
     args = ap.parse_args()
 
     import torch
@@ -82,6 +83,7 @@ def main():
         ),
         args=SFTConfig(
             output_dir=args.out,
+            seed=args.seed,
             num_train_epochs=args.epochs,
             per_device_train_batch_size=2,
             per_device_eval_batch_size=2,  # the default 8 nearly fills a 16GB GPU on long chats

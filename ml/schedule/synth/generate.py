@@ -125,7 +125,7 @@ def to_prompt(sc: dict) -> str:
 
 def check(sc: dict, turns: list[Turn]) -> str | None:
     """Why this chat doesn't match its own label, or None when it does."""
-    if not 5 <= len(turns) <= 32:
+    if not sc.get("min_turns", 5) <= len(turns) <= sc.get("max_turns", 32):
         return "length"
     if {t.speaker for t in turns} - set(sc["participants"]):
         return "unknown speaker"
@@ -196,10 +196,12 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--chunk", type=int, default=200)
+    ap.add_argument("--short", action="store_true", help="2~4 turn chats that often omit title, place or time")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
-    todo = [scenarios.make(rng) for _ in range(args.n)]
+    make = scenarios.make_short if args.short else scenarios.make
+    todo = [make(rng) for _ in range(args.n)]
     why = collections.Counter()
     kept = tokens_in = tokens_out = 0
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
