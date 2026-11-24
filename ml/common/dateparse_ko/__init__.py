@@ -90,6 +90,12 @@ def _nearest(ref: dt.date, wd: int) -> dt.date:
     return ref + dt.timedelta(days=(wd - ref.weekday()) % 7)
 
 
+def _upcoming(ref: dt.date, wd: int) -> dt.date:
+    """'이번주' 없이 요일만 말하면 다음에 올 그 요일. 오늘이 그 요일이면 7일 뒤
+    (수요일에 "수요일에 보자"는 보통 다음 주 수요일이다. 오늘이면 "오늘"이라고 한다)."""
+    return ref + dt.timedelta(days=(wd - ref.weekday() - 1) % 7 + 1)
+
+
 def _nth_week(ref: dt.date, weeks: int, wd: int) -> dt.date:
     """월요일에 시작하는 주. weeks=1이 다음주."""
     return _week_monday(ref) + dt.timedelta(days=7 * weeks + wd)
@@ -210,7 +216,7 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
         # "그 전주 목요일"의 "목요일"만 따로 날짜로 읽지 않는다.
         if re.search(r"그\s*(?:전주|다음주)\s*$", text[: match.start()]):
             continue
-        found = _nearest(ref, _wd_index(match.group("wd")))
+        found = _upcoming(ref, _wd_index(match.group("wd")))
         hits.append(_Hit(match.start(), match.end(), date=found, tentative=kind == "tentative"))
     return _resolve(hits)
 
