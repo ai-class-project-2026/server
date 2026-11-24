@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--base", default="beomi/KcELECTRA-base-v2022")
     ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--context-boost", type=int, default=4, help="how many times rows with context appear in training")
+    ap.add_argument("--seed", type=int, help="Trainer seed and model init (unset: Trainer seed 42, init not seeded)")
     args = ap.parse_args()
 
     from datasets import Dataset
@@ -52,6 +53,7 @@ def main():
         AutoTokenizer,
         Trainer,
         TrainingArguments,
+        set_seed,
     )
 
     rows = [
@@ -76,6 +78,8 @@ def main():
     train_rows, val_rows = split_by_group(rows)
     # Chats with context are a small share of the data, so show them more often.
     train_rows += [r for r in train_rows if r["has_context"]] * (args.context_boost - 1)
+    if args.seed is not None:
+        set_seed(args.seed)  # the classifier head is made here, before Trainer seeds anything
     model = AutoModelForSequenceClassification.from_pretrained(args.base, num_labels=2)
     Trainer(
         model=model,
@@ -91,6 +95,7 @@ def main():
             save_strategy="epoch",
             load_best_model_at_end=True,
             fp16=True,
+            seed=42 if args.seed is None else args.seed,
         ),
     ).train()
     model.save_pretrained(args.out)

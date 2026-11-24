@@ -12,8 +12,13 @@
    A row that is not {"text": str, "label": 0 | 1, "context": [str, ...]} is
    skipped, and its file and line number are printed.
 3. Send the printed counts to part 1 with the PR.
+
+Options: --fixes PATH changes raw labels first (one {"file", "line", "text",
+"context", "old", "new"} per line), --hold-out PATH drops more sentences the
+same way as the test sets (one {"text", "context"} per line), --out PATH.
 """
 
+import argparse
 import json
 import os
 import random
@@ -124,25 +129,50 @@ def drop_conflicts(rows: list[dict]) -> tuple[list[dict], int]:
     return [r for r in rows if r["context"] or key(r["text"]) not in bad], len(bad)
 
 
+def apply_fixes(raw: list[dict], where: dict, path: Path) -> int:
+    """라벨 고침 파일을 원문 행에 적용해요. 고침 하나는 (파일, 줄 번호)로 원문 행 하나를 가리키고,
+    글과 context와 원래 라벨(old)이 그 행과 똑같아야 해요. 하나라도 안 맞으면 멈춰요."""
+    done = set()
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        fx = json.loads(line)
+        i = where.get((fx["file"], fx["line"]))
+        r = raw[i] if i is not None else None
+        if r is None or i in done or r["text"] != fx["text"] or r.get("context", []) != fx["context"]:
+            sys.exit(f"{path}:{n}: fix does not match exactly one raw row")
+        if r["label"] != fx["old"] or type(fx["new"]) is not int or fx["new"] not in (0, 1):
+            sys.exit(f"{path}:{n}: raw label is {r['label']}, fix says {fx['old']} -> {fx['new']}")
+        r["label"] = fx["new"]
+        done.add(i)
+    return len(done)
+
+
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--fixes", type=Path, help="label overrides for raw rows (jsonl)")
+    ap.add_argument("--hold-out", type=Path, help="more sentences to keep out, like the test sets (jsonl)")
+    ap.add_argument("--out", type=Path, default=OUT)
+    args = ap.parse_args()
     rng = random.Random(0)
     # 시험 문장: 정확히 같은 글과, 철자만 다른 글(key가 같은 글) 둘 다 막아요.
+    # --hold-out 문장도 시험 문장과 똑같이 막아요.
     held_exact, held_keys, held_surface = set(), set(), set()
-    for d in TESTS:
-        for f in sorted(d.glob("*.jsonl")):
-            for n, r in read_jsonl(f):
-                if isinstance(r, dict) and isinstance(r.get("text"), str):
-                    held_exact.add(r["text"])
-                    held_keys.add(key(r["text"]))
-                    if surface(r["text"]):
-                        held_surface.add(surface(r["text"]))
-                else:
-                    print(f"skip {f}:{n}: no text", file=sys.stderr)
+    files = [f for d in TESTS for f in sorted(d.glob("*.jsonl"))] + ([args.hold_out] if args.hold_out else [])
+    for f in files:
+        for n, r in read_jsonl(f):
+            if isinstance(r, dict) and isinstance(r.get("text"), str):
+                held_exact.add(r["text"])
+                held_keys.add(key(r["text"]))
+                if surface(r["text"]):
+                    held_surface.add(surface(r["text"]))
+            else:
+                print(f"skip {f}:{n}: no text", file=sys.stderr)
 
     def held_out(text: str) -> bool:
         return text in held_exact or key(text) in held_keys or surface(text) in held_surface
 
-    raw, invalid = [], 0
+    raw, invalid, where = [], 0, {}
     for f in sorted(RAW.glob("*.jsonl")):
         for n, r in read_jsonl(f):
             why = check_row(r)
@@ -150,7 +180,10 @@ def main():
                 print(f"skip {f}:{n}: {why}", file=sys.stderr)
                 invalid += 1
             else:
+                where[f.name, n] = len(raw)
                 raw.append(r)
+    if args.fixes:  # 라벨 고침은 충돌 정리와 증강보다 먼저
+        print(f"fixed labels of {apply_fixes(raw, where, args.fixes)} raw rows from {args.fixes}")
     # 원문이나 context가 시험 문장이면 증강하기 전에 레코드를 통째로 건너뛰어요.
     # 안 그러면 시험 문장의 변형이 학습 데이터에 들어가요.
     kept = [r for r in raw if not (held_out(r["text"]) or any(map(held_out, r.get("context", []))))]
@@ -199,13 +232,13 @@ def main():
     for r in out:
         r["group"] = ids.setdefault(find(("k", key(r["text"]))), len(ids))
     rng.shuffle(out)
-    OUT.write_text(
+    args.out.write_text(
         "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out), encoding="utf-8"
     )
     bad = sum(r["label"] for r in out)
     n_groups = len({r["group"] for r in out})
     print(
-        f"{OUT}: {len(out)} rows from {n_groups} sentences "
+        f"{args.out}: {len(out)} rows from {n_groups} sentences "
         f"(profane {bad}, clean {len(out) - bad})"
     )
     print(
