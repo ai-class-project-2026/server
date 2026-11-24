@@ -111,17 +111,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--v1", type=Path, default=SYNTH / "train_v1.jsonl")
     ap.add_argument("--v2", type=Path, default=SYNTH / "train_v2.jsonl")
+    ap.add_argument("--v3", type=Path, help="short chats made with generate.py --short")
     ap.add_argument("--out", type=Path, default=SYNTH / "train.jsonl")
     args = ap.parse_args()
 
     rng = random.Random(0)
     v2 = [r | {"source": "v2"} for r in read_jsonl(args.v2)]
+    v3 = [r | {"source": "v3"} for r in read_jsonl(args.v3)] if args.v3 else []
     v1 = [repair_v1(r, rng) for r in read_jsonl(args.v1) if useful_v1(r)]
     rng.shuffle(v1)
     v1 = v1[: int(len(v2) * V1_SHARE)]
     held_out = held_out_texts()
     seen, out, dropped = set(), [], collections.Counter()
-    for r in v2 + v1:
+    for r in v2 + v3 + v1:
         chat = tuple(re.sub(r"\s", "", t["text"]) for t in r["dialogue"])
         if chat in seen:
             dropped["duplicate"] += 1
