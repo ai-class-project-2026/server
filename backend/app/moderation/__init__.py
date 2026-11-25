@@ -53,6 +53,18 @@ def _model_score(text: str, norm: str, context: list[str]) -> float | None:
     return score
 
 
+def _seen_end(text: str, norm: str, context: list[str]) -> int:
+    """원문에서 모델이 읽는 곳의 끝 위치: 이 앞은 모델이 봐요. 원문 칸과 정규화한 칸 중
+    더 멀리 남은 쪽을 원문 위치로 바꿔요. 셀 수 없으면 0 (모델이 아무것도 못 본 것으로 쳐요)."""
+    try:
+        raw_end, norm_end = classifier.visible(text, norm, context)
+        _, _, end_map = normalize.normalize_with_ends(text)
+        return max(raw_end, end_map[norm_end - 1] if norm_end > 0 else 0)
+    except Exception as e:
+        log.warning("moderation visible-length check failed: %s", type(e).__name__)
+        return 0
+
+
 def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationResult:
     # 기본 읽기: 복원 글자와 certain 단어는 여기서만 나와요.
     norm = normalize.normalize_with_ends(text)[0]
@@ -70,6 +82,12 @@ def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationRe
     # ambiguous 단어("새끼", "꺼져")는 멀쩡한 말일 수도 있어요: 모델이 판단하고,
     # 가리는 위치는 사전이 찾은 곳이에요. certain 단어는 늘 가려요.
     score = _model_score(text, norm, context)
+    if score is not None and ambiguous:
+        # 긴 글은 뒤가 잘려서 모델이 못 봐요. 모델이 못 본 곳의 ambiguous 단어는 모델이
+        # 판단할 수 없으니, 모델이 없을 때처럼 certain으로 다뤄서 가려요.
+        seen = _seen_end(text, norm, context)
+        certain += [h for h in ambiguous if h[1] > seen]
+        ambiguous = [h for h in ambiguous if h[1] <= seen]
     if certain:
         hits = certain + (ambiguous if score is None or score >= THRESHOLDS[level] else [])
         return ModerationResult(True, 1.0, _spans(hits), restored, "dict")
