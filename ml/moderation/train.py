@@ -25,12 +25,14 @@ from app.moderation.classifier import second_segment
 from app.moderation.normalize import normalize
 
 
-def split_by_group(rows: list[dict], val_frac: float = 0.1, seed: int = 0):
-    """Keep every variant of a source sentence on one side, so val scores are honest."""
+def split_by_group(rows: list[dict], val_frac: float = 0.1, seed: int = 0, val_groups=None):
+    """Keep every variant of a source sentence on one side, so val scores are honest.
+    val_groups: the group ids that form the validation side (default: a seeded random 10%)."""
     key = lambda r: r.get("group", r["text"])
-    groups = sorted({key(r) for r in rows}, key=str)
-    random.Random(seed).shuffle(groups)
-    val_groups = set(groups[: max(1, int(len(groups) * val_frac))])
+    if val_groups is None:
+        groups = sorted({key(r) for r in rows}, key=str)
+        random.Random(seed).shuffle(groups)
+        val_groups = set(groups[: max(1, int(len(groups) * val_frac))])
     train, val = [], []
     for r in rows:
         (val if key(r) in val_groups else train).append(r)
@@ -45,6 +47,12 @@ def main():
     ap.add_argument("--epochs", type=float, default=3)
     ap.add_argument("--context-boost", type=int, default=4, help="how many times rows with context appear in training")
     ap.add_argument("--seed", type=int, help="Trainer seed and model init (unset: Trainer seed 42, init not seeded)")
+    ap.add_argument(
+        "--val-groups",
+        type=Path,
+        help="file with one group id per line: these groups are the validation side "
+        "(unset: a seeded random 10%% of the groups). Keeps validation fixed when the data changes",
+    )
     args = ap.parse_args()
 
     from datasets import Dataset
@@ -75,7 +83,15 @@ def main():
             batched=True,
         )
 
-    train_rows, val_rows = split_by_group(rows)
+    val_groups = None
+    if args.val_groups:
+        val_groups = {json.loads(x) for x in args.val_groups.read_text(encoding="utf-8").split()}
+        missing = val_groups - {r.get("group", r["text"]) for r in rows}
+        if missing:
+            print(f"WARNING: {len(missing)} --val-groups ids are not in the data", file=sys.stderr)
+    train_rows, val_rows = split_by_group(rows, val_groups=val_groups)
+    if val_groups is not None:
+        print(f"--val-groups: train rows {len(train_rows)}, val rows {len(val_rows)}")
     # Chats with context are a small share of the data, so show them more often.
     train_rows += [r for r in train_rows if r["has_context"]] * (args.context_boost - 1)
     if args.seed is not None:
