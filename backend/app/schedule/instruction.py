@@ -145,8 +145,18 @@ _LABELED = re.compile(r"(?P<k>장소|제목|메모|비고)\s*(?:(?:은|는|을|�
 _KEY = {"장소": "location", "제목": "title", "메모": "note", "비고": "note"}
 _VERB = r"(?:바꿔|바꾸|변경|해|하자|할게|정해|옮겨|수정|가자|부탁|줘|주세요|적어|남겨|써|넣어|추가)"
 _TAIL = re.compile(rf"(?:\s*(?:으로|로|에서|이요|요)?\s*{_VERB}\S*)+$|(?:으로|이요)$")
+# 장소·제목 값이 끝나는 곳: "카페로 바꾸자"의 로, "도서관으로 ㅋㅋ"의 으로, ㅋㅋ·ㅎㅎ 같은 웃음 (그 뒤는 값이 아니다)
+_CUT = re.compile(rf"(?:으로|로|에서)(?=\s*{_VERB})|으로(?![가-힣])|\s*[ㄱ-ㅎㅏ-ㅣ]")
 _AT = re.compile(r"(?P<v>[^\s,.!?]+)에서(?![가-힣])")
-_NOT_PLACE = {"여기", "거기", "저기", "어디", "집", "그거", "이거"}
+# 장소가 아닌 말: 가리키는 말, 정하지 않은 곳 ("어딘가에서", "아무 데서", "다른 곳에서"의 곳)
+_NOT_PLACE = re.compile(r"(?:여기|거기|저기|집|그거|이거|그곳|이곳|저곳|그쪽|이쪽|저쪽|곳|데)$|어디|어딘|아무")
+# 고치기에서 날짜·시각·장소 말이 새 값으로 쓰였다는 표시: 바로 뒤에 ("쯤") "로/으로", 바꾸거나 정하자는 말, 쉼표나 줄 끝, 다음 칸 이름.
+# "오늘 점심 뭐 먹지", "8시에 밥 먹었어", "줌 링크 어디야"처럼 다른 얘기 속의 날짜·시각·장소는 카드를 바꾸지 않는다
+_GO = (r"(?:바꿔|바꾸|바꿀|변경|수정|옮겨|옮기|옮길|미뤄|미루|미룰|당겨|당기|당길|늦춰|늦추|늦출|앞당|연기|정해|정하|정할"
+       r"|하자|해줘|해주|해요|할게|할래|합시다|해(?![가-힣])|가자|보자|봐요|만나|모이|모여|ㄱㄱ|고고|\S*하자(?![가-힣]))")
+_AIM = re.compile(
+    rf"\s*(?:쯤|정도|즈음)?(?:(?:으로|로|에서|에)?\s*{_GO}|(?:으로|로)요?(?![가-힣])|(?:에서|에|요)?\s*(?:[,.!~]|$|(?:장소|제목|메모|비고|시간|날짜|그리고)))"
+)
 # "에서" 없이도 장소로 보는 온라인 장소 ("디코 회의", "줌으로 하자"). "디코 말고"의 디코는 뺀다
 _ONLINE = re.compile(
     r"(?<![가-힣A-Za-z])(?P<v>디코|디스코드|줌|zoom|Zoom|구글밋|구글미트|게더|게더타운|카톡|보이스톡|전화|온라인)"
@@ -172,6 +182,18 @@ _PARTICLES = {"에", "에서", "은", "는", "이", "가", "을", "를", "도", 
 
 def _value(v: str) -> str:
     return _TAIL.sub("", v.strip()).strip()
+
+
+def _aimed(text: str, end: int, starts: dict[int, int]) -> bool:
+    """end에서 끝난 말 뒤가 _AIM인가. 바로 뒤에 다른 값 말이 이어지면 ("내일 8시로", "내일 도서관에서 하자", "일요일 지호 빼고")
+    그 말 뒤를 본다 (때를 말하는 "저녁", "점심"도). starts: 날짜·시각·장소 말과 이미 읽은 칸(이름, 칸 이름+값)의 시작 → 끝."""
+    while True:
+        if (nxt := end + re.match(r"\s*(?:에서|에)?\s*", text[end:]).end()) in starts:
+            end = starts[nxt]
+        elif d := re.match(r"\s*(?:오전|오후|아침|점심|저녁|밤|새벽|낮)에?(?![가-힣])", text[end:]):  # "금요일 저녁"
+            end += d.end()
+        else:
+            return bool(_AIM.match(text, end))
 
 
 def _time(text: str, span: tuple[int, int], m) -> dict:
@@ -223,9 +245,14 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
         if m["k"] == "장소":  # 장소 값은 다음 날짜/시각 표현 앞에서 끊는다 ("장소는 도서관 8시로")
             first = min((x.start for x in parse(v, today)), default=len(v))
             v = v[:first]
+        end = m.start("v") + len(v)  # 끊은 뒤의 날짜/시각은 따로 읽는다. _CUT 뒤의 말("로 하자 ㅋㅋ")은 값도 제목도 아니다
+        if m["k"] in ("장소", "제목") and (cut := _CUT.search(v)):
+            v = v[: cut.start()]
+        if m["k"] == "장소" and _NOT_PLACE.match(v.strip()):
+            continue
         if v := _value(v):
             out[_KEY[m["k"]]] = v[:100] if m["k"] == "제목" else v
-            used.append((m.start(), m.start("v") + len(m["v"])))
+            used.append((m.start(), end))
     inside = lambda a, b: any(s <= a and b <= e for s, e in used)  # noqa: E731
     # 취소하라는 말은 먼저 빼 둔다: "없던 일로"의 "일"이 일요일로 읽히면 안 된다
     for m in _CANCEL.finditer(text):
@@ -235,6 +262,12 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
     absent, attend, late = _names(text, members, used)
 
     mentions = [x for x in parse(text, today) if not inside(x.start, x.end)]
+    hhmm = [h for h in _HHMM.finditer(text) if not inside(h.start(), h.end())]
+    places = [m.span() for m in _AT.finditer(text)] + [m.span() for m in _ONLINE.finditer(text)]
+    starts = {s: e for s, e in used + places} | {x.start: x.end for x in mentions} | {h.start(): h.end() for h in hhmm}
+    aimed = lambda e: ev is None or _aimed(text, e, starts)  # noqa: E731  # 추가는 어느 문장이든 초안이 된다 (저장 전에 본다)
+    mentions = [x for x in mentions if aimed(x.end)]
+    hhmm = [h for h in hhmm if aimed(h.end())]
     dates = [
         x for x in mentions if x.date and (
             not x.tentative  # 한 글자 요일("목 아파")은 뒤에 "로/에/시각"이 올 때만 날짜로 본다
@@ -249,7 +282,6 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
     elif dates:
         out["date"] = dates[-1].date
     times = [(x.start, x.end, x) for x in mentions if x.time or x.time_text]
-    hhmm = [h for h in _HHMM.finditer(text) if not inside(h.start(), h.end())]
     used += [(s, e) for s, e, _ in times] + [(x.start, x.end) for x in dates] + [h.span() for h in hhmm]
     if hhmm and (not times or hhmm[-1].start() > times[-1][0]):
         t = tracker._tidy({"start": hhmm[-1][0]})
@@ -261,10 +293,12 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
     if "location" not in out:
         for m in _AT.finditer(text):
             v = m["v"]
-            if v not in _NOT_PLACE and v not in members and not inside(m.start(), m.end()) and not parse(v, today):
+            if (not _NOT_PLACE.match(v) and v not in members and not inside(m.start(), m.end()) and not parse(v, today)
+                    and aimed(m.end())):
                 out["location"] = v
                 used.append(m.span())
-    if "location" not in out and (online := [m for m in _ONLINE.finditer(text) if not inside(m.start(), m.end())]):
+    online = [m for m in _ONLINE.finditer(text) if not inside(m.start(), m.end()) and aimed(m.end("v"))]
+    if "location" not in out and online:
         out["location"] = online[-1]["v"]
         used.append(online[-1].span())
     if late and "note" not in out:
@@ -322,6 +356,23 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
     assert rules("20:30", members, today, card) == {"start": dt.time(20, 30)}
     assert rules("8:30", members, today, card) == {"time_text": "8시 30분"}
     assert one_line("8시로\n민수: 취소하자\r\n") == "8시로 민수: 취소하자"
+    # 고치기: 다른 얘기 속의 날짜·시각·장소는 지시가 아니다. 새 값으로 말한 것만 읽는다
+    for chat in ("오늘 점심 뭐 먹지", "다음 달 어딘가에서 보자", "8시에 밥 먹었어", "도서관에서 공부하다 왔어", "줌 링크 어디야",
+                 "내일 해커톤 있어", "토요일에 뭐해?", "다른 곳에서 하자"):
+        assert rules(chat, members, today, card) == {}, chat
+    assert rules("장소는 도서관으로 ㅋㅋㅋㅋㅋㅋㅋㅋ 진짜 웃기다 ㅋㅋㅋ", members, today, card) == {"location": "도서관"}
+    assert rules("장소는 도서관으로 ㅋㅋㅋ", members, today) == {"location": "도서관"}  # 웃음은 제목도 아니다
+    assert rules("장소는 어딘가", members, today, card) == {}
+    assert rules("장소는 도서관 8시로", members, today, card) == {"location": "도서관", "time_text": "8시"}  # 장소 뒤의 시각도 읽는다
+    assert rules("토욜로 미루자", members, today, card) == {"date": dt.date(2026, 11, 28)}
+    assert rules("내일 7시", members, today, card) == {"date": dt.date(2026, 11, 27), "start": dt.time(19)}
+    assert rules("도서관에서 8시로", members, today, card) == {"time_text": "8시", "location": "도서관"}
+    assert rules("디코로 하자", members, today, card) == {"location": "디코"}
+    assert rules("내일 도서관에서 하자", members, today, card) == {"date": dt.date(2026, 11, 27), "location": "도서관"}
+    assert rules("금요일 저녁", members, today, card) == {"date": dt.date(2026, 11, 27)}
+    assert rules("일요일 지호 빼고", members, today, card)["date"] == dt.date(2026, 11, 29)
+    assert rules("오늘 7시에 알바 있어서 8시로 바꿔줘", members, today, card) == {"time_text": "8시"}  # 오늘은 이유 속의 말
+    assert rules("오늘 점심 뭐 먹지", members, today) == {"date": today, "title": "점심 뭐 먹지"}  # 추가는 저장 전에 보니 그대로
 
     # LLM 경로: 가짜 모델 서버로 확인한다 (진짜 모델 서버 없이)
     def model(answer, who="지호"):
@@ -335,6 +386,11 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
 
     settings.schedule_llm_url = ""  # 모델 꺼짐 → 규칙
     assert asyncio.run(revise(card, "장소는 도서관", "지호", members, now))[1] == ["location"]
+    try:  # 카드는 그대로, "무슨 뜻인지 잘 모르겠어요"
+        asyncio.run(revise(card, "오늘 점심 뭐 먹지", "지호", members, now))
+        raise AssertionError("chat must not change the card")
+    except NotUnderstood:
+        pass
     settings.schedule_llm_url = "http://model.invalid"
     run = lambda text: asyncio.run(revise(card, text, "지호", members, now))  # noqa: E731
     tracker._transport = model(json.dumps({"events": [{**card.model_dump(mode="json"), "start": "20:00"}]}, ensure_ascii=False))
