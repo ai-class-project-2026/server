@@ -158,11 +158,11 @@ def _value(v: str) -> str:
 
 
 def _time(text: str, span: tuple[int, int], m) -> dict:
-    """시각: 오전/오후/저녁/밤 같은 말이 붙었거나 13시 이상(24시간 표기)이면 숫자, 아니면 원문 그대로 time_text.
+    """시각: 오전/오후/저녁/밤 같은 말이 붙었거나 13시 이상(24시간 표기)이거나 1~7시(오후로 본다)면 숫자, 8~11시는 원문 그대로 time_text.
     tracker가 한 자리 시("8:00")를 "8시"로 남기는 것과 같은 생각: 오전인지 오후인지 지어내지 않는다."""
     said = text[span[0] : span[1]].strip()
     hour = re.search(r"(\d{1,2})\s*시", said)
-    if m.time and (_HINT.search(said) or (hour and int(hour[1]) >= 13)):
+    if m.time and (_HINT.search(said) or (hour and (int(hour[1]) >= 13 or 1 <= int(hour[1]) <= 7))):  # 1~7시는 오후 (기획서 8.5)
         return {"start": m.time}
     return {"time_text": said[:100]}
 
@@ -287,6 +287,7 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
                          attendees=members, location="디스코드")
     # 규칙 경로
     assert rules("8시로 바꿔줘", members, today, card) == {"time_text": "8시"}
+    assert rules("3시로 바꿔줘", members, today, card) == {"start": dt.time(15)}  # 1~7시는 오후
     assert rules("저녁 8시로 바꿔줘, 장소는 도서관", members, today, card) == {"start": dt.time(20), "location": "도서관"}
     assert rules("지호는 못 와", members, today, card) == {"attendees": ["민준", "서연", "하은"], "absent": ["지호"]}
     assert rules("목 아파서 지호 빠져", members, today, card)["absent"] == ["지호"]

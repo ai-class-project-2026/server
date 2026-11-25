@@ -153,7 +153,7 @@ async def _run(session: AsyncSession, channel_id: int) -> list[AISuggestion]:
         ref_datetime=rows[-1].created_at,
         participants=list(names),
         dialogue=[
-            DialogueTurn(speaker=r.name, text=r.text, ts=r.created_at) for r in rows
+            DialogueTurn(speaker=r.name, text=" ".join(r.text.split()), ts=r.created_at) for r in rows  # 한 턴은 한 줄: 줄바꿈으로 가짜 턴을 못 끼우게
         ],
         existing_events=existing_out,
     )
@@ -188,6 +188,15 @@ async def _run(session: AsyncSession, channel_id: int) -> list[AISuggestion]:
     # 무시한(거둔) 카드는 칸을 막지 않는다: 너무 일찍 떠서 무시한 일정이 나중에 확정되면 다시 보여 준다.
     seen = [reconcile.identity(card) for _, card in recent]
     taken = {reconcile.slot(card) for s, card in recent if s.action != SuggestionAction.ignored}
+    for s, card in recent:  # 말로 고친 카드: AI가 처음 낸 결론도 본 것으로 친다 (안 그러면 다음 실행에서 원래 내용으로 또 뜬다)
+        if first := s.payload_json.get("original_event"):
+            try:
+                old = card.model_copy(update={"event": ScheduleEvent.model_validate(first)})
+            except ValidationError:
+                continue
+            seen.append(reconcile.identity(old))
+            if s.action != SuggestionAction.ignored:
+                taken.add(reconcile.slot(old))
     created = []
     for p in proposals:
         slot = reconcile.slot(p)
