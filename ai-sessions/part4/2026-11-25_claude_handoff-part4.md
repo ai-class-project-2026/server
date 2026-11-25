@@ -107,3 +107,31 @@ plan 레포에 만든 `seojinha` 브랜치를 원격과 로컬에서 지웠다. 
 - 새 파일: `data/schedule/real_test/ai_roleplay/` (README.md, pilot_unlabeled.jsonl, hard_unlabeled.jsonl)
 - `eval/schedule/import_chat.py` (`--source`), `check_labels.py` (섞임 검사, source별 개수), `guideline.md`
 - `ml/common/dateparse_ko/__init__.py` (`_WEEKEND`), `examples.py`
+
+---
+
+## 프롬프트
+
+1. 나한텐 기획을 손댈 권한은 없어서 최대한 기획서에 맞게 하면 돼. 그냥 기획대로 쭉 진행해. 그리고 너가 직접 다 해도 되니까 파트 4 할당된거 일단 다 해봐
+2. 아 발표자료랑 디코봇만 뺴고....
+3. 그래 쭉 진행해
+
+### 결과
+
+**요일 규칙을 기획서대로 되돌림 (커밋 `0a6147a`).** 기획서 8.5의 "(이번주) X요일"은 한 규칙이라, 수요일의 "수 보자"와 "이번주 수"가 둘 다 오늘이다. 앞의 "받아들이기" 결정을 사용자가 바꾼 것이다. 파트 1의 자체 검사 `ml/schedule/synth/generate.py --demo`와 `offline.py demo`가 이 변경으로 실패한다(되돌리기 전 `a259b43`에서는 둘 다 통과, `build_train.py --demo`는 전후 모두 통과). 같은 요일 학습 대화가 "다음 주"로 만들어져 있어서다. 파트 1 파일은 고치지 않았다. **파트 1이 동의하기 전에는 이 커밋을 main에 합치면 안 된다.**
+
+**역할극.** 실제 카드 R001~R120을 AI 세 명이 40장씩 나눠 썼다 (120개, 10~15턴). 카드와 어긋난 역할 0건.
+
+**정답.** 대화를 쓰지 않은 AI 두 명이 유형과 역할을 가린 대화만 보고 따로 달았다. 164개의 확정·취소·제안·폐기와 유형이 모두 같고, 다른 것은 제목 14건과 장소 2건뿐이다. 비교 스크립트는 일부러 다르게 만든 줄을 잡는 것으로 확인했다. 두 라벨러가 같은 모델이고 대화가 깔끔해서 생긴 일치라, 사람 라벨러 일치도로 쓰면 안 된다. 다른 제목과 장소만 골라 합쳤다.
+
+**기준선.** 서버와 같은 프롬프트를 Claude Sonnet 서브에이전트에게 주고 44개의 답을 받았다(API가 아니라 응답 시간과 비용이 없다). 파일럿 20개: F1 0.963, 오등록률 7.1%, 취소 감지율 100%(취소 1개). 약점 24개: F1 0.944, 오등록률 10.5%. 틀린 3개(P011, H004, H015)는 모두 결론이 안 난 대화에서 기존 일정을 그대로 다시 확정으로 적은 것이다. 서버의 `reconcile.py`는 똑같은 기존 일정에 카드를 만들지 않으므로 실제로는 잘못 등록되지 않는다. 채점 방식을 바꿀지는 팀이 정해야 해서 `score.py`는 그대로 뒀다. `qwen2.5:3b`(Ollama 없음), `claude --target claude`(키 없음), 우리 모델(미연결)은 재지 못했다.
+
+**그래프 도구.** `eval/schedule/chart.py`. 새 의존성 없음. 화면으로 확인했다.
+
+발표 자료는 프롬프트 2에 따라 멈췄다.
+
+### 변경 사항
+
+- `ml/common/dateparse_ko/`, `eval/schedule/cards.py`, `guideline.md`, `data/schedule/real_test/hard_cards/` (되돌리기)
+- 새 파일: `eval/schedule/chart.py`, `ai_roleplay/`의 real_unlabeled, *_labels_a/b, test_ai, pilot_ai, hard_ai, reports
+- `eval/schedule/check_labels.py` (AI 정답 표시도 섞임 검사)

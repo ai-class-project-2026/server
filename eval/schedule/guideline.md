@@ -149,4 +149,5 @@ uv run python eval/schedule/score.py data/schedule/real_test/test.jsonl preds_cl
 
 * 서버를 켜려면 `.env`에 `JWT_SECRET`(32자 이상)이 있어야 한다
 * **서버는 LLM이 꺼져 있어도 빈 답을 정상 응답으로 돌려준다.** 그대로 채점하면 오등록률이 0%로 나온다. 답이 전부 비면 `run.py`가 저장하지 않고 멈춘다. 일부만 실패한 것은 서버 창의 `schedule LLM failed` 줄로 확인한다. 이 줄이 있으면 점수를 쓰지 않고 다시 돌린다
+* 점수가 모이면 그래프: `uv run python eval/schedule/chart.py --testset test.jsonl --labels <학습 전> claude-zeroshot <우리 모델>` → `eval/reports/schedule_chart.html`
 * `preds_*.jsonl`은 커밋하지 않는다. `eval/reports/schedule.csv`, `schedule_by_type.csv`만 커밋한다

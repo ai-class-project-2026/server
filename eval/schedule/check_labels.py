@@ -183,10 +183,10 @@ def main():
         for cid in [c for c, k in ids.items() if k > 1]:
             count += 1
             print(f"{path}: card_id {cid} 줄이 {ids[cid]}개 있음")
-        ai = [str(r.get("card_id")) for r in recs if r.get("source")]
+        ai = [str(r.get("card_id")) for r in recs if r.get("source") or r.get("label_source")]
         if ai and Path(path).name in HUMAN_ONLY:
             count += 1
-            print(f"{path}: 사람 대화만 넣는 파일인데 source가 적힌 줄이 {len(ai)}개 있음 ({', '.join(ai[:5])}...)")
+            print(f"{path}: 사람 대화와 사람 정답만 넣는 파일인데 AI 표시(source, label_source)가 있는 줄이 {len(ai)}개 있음 ({', '.join(ai[:5])}...)")
         for field in ("type", "weakness", "source"):
             kinds = Counter(str(r[field]) for r in recs if r.get(field))
             if kinds:

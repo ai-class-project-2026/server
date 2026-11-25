@@ -1,0 +1,3 @@
+label,testset,n,confirmed_f1,false_registration,cancel_recall,date_accuracy
+sonnet-subagent,pilot_ai.jsonl,20,0.963,0.0714,1.0,0.9545
+sonnet-subagent,hard_ai.jsonl,24,0.9444,0.1053,,1.0
