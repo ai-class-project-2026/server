@@ -194,5 +194,32 @@ RULES = [
 ]  # fmt: skip
 
 
-def augment(text: str, rng: random.Random, n: int = 3) -> list[str]:
-    return [rng.choice(RULES)(text, rng) for _ in range(n)]
+# 긴 문장에서 아무 곳이나 고르면 욕이 아닌 단어만 바뀌기 쉬워서, 모델이 "ㅅ1발" 같은
+# 우회 철자 자체를 볼 기회가 적어요. 욕이 걸린 곳을 알려 주면 이 비율만큼은 그 단어만 바꿔요.
+SWEAR_FIRST = 0.8
+
+
+def _word_at(text: str, start: int, end: int) -> tuple[int, int]:
+    """start~end를 띄어쓰기까지 넓힌 구간: "야 시발 뭐해"의 (2, 4) → (2, 4), "시발놈아"는 단어 전체."""
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    return start, end
+
+
+def augment(
+    text: str, rng: random.Random, n: int = 3, swears: list[tuple[int, int]] = ()
+) -> list[str]:
+    """변형 n개. swears는 사전에 걸린 곳 (시작, 끝)이에요 (build_train.py가 찾아 줘요).
+    있으면 SWEAR_FIRST 비율로 그 단어 하나에만 규칙을 써요. 없으면 문장 전체에서 골라요.
+    swears가 비어 있으면 난수를 더 쓰지 않아서, 욕 없는 문장의 결과는 예전과 같아요."""
+    out = []
+    for _ in range(n):
+        rule = rng.choice(RULES)
+        if swears and rng.random() < SWEAR_FIRST:
+            s, e = _word_at(text, *rng.choice(swears))
+            out.append(text[:s] + rule(text[s:e], rng) + text[e:])
+        else:
+            out.append(rule(text, rng))
+    return out
