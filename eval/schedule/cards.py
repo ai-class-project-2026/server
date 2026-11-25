@@ -280,8 +280,8 @@ def make_hard_card(cid: str, weak: str, flow: str, rng: random.Random) -> dict:
         time = rng.choice(["5시", "6시", "7시", "7시 반"])
         if flow == "요일만":
             say = rng.choice([w, f"{w}요일"])
-            situation = f"오늘은 {w}요일이다. 오늘 {_josa(title, '을', '를')} 하려고 한다."
-            roles[lead] = f"'{say} {time}'처럼 요일만 말해서 제안하기 ('오늘', '이번주'라는 말, 날짜 숫자는 쓰지 않기)"
+            situation = f"오늘은 {w}요일이다. 오늘 말고 다음에 오는 {w}요일에 {_josa(title, '을', '를')} 하려고 한다."
+            roles[lead] = f"'{say} {time}'처럼 요일만 말해서 제안하기 ('다음주'라는 말, 날짜 숫자는 쓰지 않기)"
         else:
             say = f"이번주 {w}"
             situation = f"오늘은 {w}요일이다. 오늘 {_josa(title, '을', '를')} 하려고 한다."

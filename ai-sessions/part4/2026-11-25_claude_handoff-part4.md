@@ -135,3 +135,25 @@ plan 레포에 만든 `seojinha` 브랜치를 원격과 로컬에서 지웠다. 
 - `ml/common/dateparse_ko/`, `eval/schedule/cards.py`, `guideline.md`, `data/schedule/real_test/hard_cards/` (되돌리기)
 - 새 파일: `eval/schedule/chart.py`, `ai_roleplay/`의 real_unlabeled, *_labels_a/b, test_ai, pilot_ai, hard_ai, reports
 - `eval/schedule/check_labels.py` (AI 정답 표시도 섞임 검사)
+
+---
+
+## 프롬프트
+
+음 확인받았고 그부분 기획을 수정해서 정상적으로 되게 해.
+
+### 결과
+
+요일 규칙을 "요일만 말하면 다음에 오는 그 요일(기준일이 그 요일이면 다음 주), 이번주 X요일은 당일"로 정하고, 확인을 받았다는 사용자 말에 따라 기획서 8.3, 8.5의 그 줄만 고쳤다(plan `main`, 브랜치는 만들지 않음). 되돌렸던 커밋 `0a6147a`를 취소했다.
+
+파트 1의 자체 검사 `generate.py --demo`, `offline.py demo`, `build_train.py --demo`가 모두 종료 코드 0으로 통과한다. `examples.py` 267/267.
+
+AI 역할극 중 요일만 말한 같은 요일 대화 3개(H018, H019, H022)의 정답 날짜를 다음 주로 바꿨다. 새 규칙을 그대로 적용한 것이고 라벨러가 다시 달지는 않았다. 날짜 주석이 달라진 기준선 문제 5개(P009, H017, H018, H019, H022)는 Claude Sonnet에게 새 문제로 다시 답을 받아 채점했다. 점수는 `ai_roleplay/reports/`에 있다.
+
+일요일에 "일요일이잖아"를 다음 주 일요일로 읽는 부작용(H017)은 다시 생겼다.
+
+### 변경 사항
+
+- 커밋 `0a6147a` 취소 (`ml/common/dateparse_ko/`, `cards.py`, 약점 카드), `guideline.md`
+- `ai_roleplay/hard_labels_a.jsonl`, `hard_labels_b.jsonl`, `hard_ai.jsonl`, `reports/`
+- plan 레포 `README.md` 8.3, 8.5
