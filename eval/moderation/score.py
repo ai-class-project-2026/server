@@ -5,6 +5,12 @@
 Lines: {"text": "...", "label": 0 | 1, "type": "숫자 치환" (optional),
 "context": ["earlier message", ...] (optional, oldest first)}.
 Runs app.moderation.moderate() in-process, so it measures exactly what chat uses.
+New workspaces use level 3 (strict): pass --level 3 for the official score.
+
+"기존 필터" (비교 대상, 이 명령에서만 korcen을 받아서 씀. 이전 메시지는 안 봄):
+
+    uv run --with korcen==1.0.3 python eval/moderation/score.py data/moderation/test_C_human/test.jsonl --label korcen-1.0.3 --system korcen
+
 Appends to eval/reports/moderation.csv.
 """
 
@@ -50,17 +56,21 @@ def main():
     ap.add_argument("testset")
     ap.add_argument("--label", required=True)
     ap.add_argument("--level", type=int, default=2)
+    ap.add_argument("--system", choices=["ours", "korcen"], default="ours")
     ap.add_argument("--report", default="eval/reports/moderation.csv")
     args = ap.parse_args()
 
     rows = [
         json.loads(x) for x in Path(args.testset).read_text(encoding="utf-8").splitlines() if x.strip()
     ]
+    if args.system == "korcen":
+        from korcen import korcen
+
+        judge = lambda r: int(bool(korcen.check(r["text"])))
+    else:
+        judge = lambda r: int(moderate(r["text"], r.get("context", ()), args.level).is_profane)
     t = time.perf_counter()
-    preds = [
-        int(moderate(r["text"], r.get("context", ()), args.level).is_profane)
-        for r in rows
-    ]
+    preds = [judge(r) for r in rows]
     ms = (time.perf_counter() - t) * 1000 / max(len(rows), 1)
     labels = [r["label"] for r in rows]
     m = metrics(labels, preds) | {"n": len(rows), "ms_per_msg": round(ms, 2)}
