@@ -106,6 +106,15 @@ def hit_words(text: str) -> Counter:
     return hits | extra  # 같은 단어를 두 번 세지 않아요
 
 
+def swear_spans(text: str) -> list[tuple[int, int]]:
+    """원문에서 사전에 걸린 곳 (시작, 끝). 증강이 이 단어를 먼저 바꾸도록 넘겨줘요.
+    확실/애매, 기본 읽기/후보 읽기를 가리지 않아요 ("고양이 새끼"의 새끼도 바꿔 봐야
+    모델이 "새1끼"를 문맥으로 판단하는 법을 배워요)."""
+    spans = {(s, e) for s, e, _, _ in candidate.default_hits(text)}
+    spans |= {(s, e) for s, e, _ in candidate.hits(text)}
+    return sorted(spans)
+
+
 def label_safe(source: str, variant: str, label: int) -> bool:
     """변형이 원문의 라벨을 그대로 물려받아도 되나? 규칙과 상관없이 결과만 봐요.
     label 0: 변형이 원문에 없던 욕을 단어 단위로 새로 만들면 안 돼요 (장녀 → 창녀).
@@ -217,7 +226,8 @@ def main():
     rows, unsafe = {}, 0
     for r in kept:
         context = r.get("context", [])
-        for text in [r["text"], *augment(r["text"], rng, N_AUG)]:
+        variants = augment(r["text"], rng, N_AUG, swear_spans(r["text"]))
+        for text in [r["text"], *variants]:
             if held_out(text):  # never train on the test sets
                 continue
             if text != r["text"] and not label_safe(r["text"], text, r["label"]):
