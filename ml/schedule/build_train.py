@@ -10,6 +10,11 @@ Later sets go in after v2 and v3, in the order given, each tagged with its own s
 
     uv run python ml/schedule/build_train.py --v3 data/schedule/synth/train_v3.jsonl \
         --extra v4=data/schedule/synth/train_v4.jsonl
+
+Or start from an already built file (its source tags are kept) and add to it:
+
+    uv run python ml/schedule/build_train.py --base data/schedule/synth/train_v4_all.jsonl \
+        --extra v5=data/schedule/synth/train_v5.jsonl --out data/schedule/synth/train_v5_all.jsonl
 """
 
 import argparse
@@ -123,18 +128,22 @@ def main():
     ap.add_argument("--v1", type=Path, default=SYNTH / "train_v1.jsonl")
     ap.add_argument("--v2", type=Path, default=SYNTH / "train_v2.jsonl")
     ap.add_argument("--v3", type=Path, help="short chats made with generate.py --short")
+    ap.add_argument("--base", type=Path, help="a built training file to start from (keeps its sources); no v1/v2/v3")
     ap.add_argument("--extra", action="append", default=[], metavar="[NAME=]FILE",
                     help="more chats (e.g. offline.py output), repeatable; source = NAME or the file name")  # fmt: skip
     ap.add_argument("--out", type=Path, default=SYNTH / "train.jsonl")
     args = ap.parse_args()
 
     rng = random.Random(0)
-    v2 = [r | {"source": "v2"} for r in read_jsonl(args.v2)]
-    v3 = [r | {"source": "v3"} for r in read_jsonl(args.v3)] if args.v3 else []
     extra = [r | {"source": name} for name, path in map(extra_file, args.extra) for r in read_jsonl(path)]
-    v1 = [repair_v1(r, rng) for r in read_jsonl(args.v1) if useful_v1(r)]
-    rng.shuffle(v1)
-    v1 = v1[: int(len(v2) * V1_SHARE)]
+    if args.base:  # already repaired and mixed: v1/v2/v3 are in it
+        v2, v3, v1 = read_jsonl(args.base), [], []
+    else:
+        v2 = [r | {"source": "v2"} for r in read_jsonl(args.v2)]
+        v3 = [r | {"source": "v3"} for r in read_jsonl(args.v3)] if args.v3 else []
+        v1 = [repair_v1(r, rng) for r in read_jsonl(args.v1) if useful_v1(r)]
+        rng.shuffle(v1)
+        v1 = v1[: int(len(v2) * V1_SHARE)]
     held_out = held_out_texts()
     seen, out, dropped = set(), [], collections.Counter()
     for r in v2 + v3 + extra + v1:
