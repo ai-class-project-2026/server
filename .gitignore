@@ -14,3 +14,4 @@ data/moderation/test_A_public/*
 *.gguf
 lora-*/
 data/moderation/train.jsonl
+data/moderation/reports/
