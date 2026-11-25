@@ -122,7 +122,10 @@ def reconcile(
             match = _match(ev, existing, dialogue)
         if ev.status == EventStatus.confirmed:
             if match is None:
-                out.append(SuggestionPayload(kind=SuggestionKind.add, event=ev))
+                # 캘린더에 같은 날짜·시각의 일정이 이미 있으면 제목이 달라도 새 일정 카드를 만들지 않는다:
+                # 모델이 이미 있는 일정을 다른 제목으로 다시 쓴 것이다. (같은 시각에 진짜 다른 일정 두 개는 카드가 안 나온다)
+                if ev.start is None or not any(e.date == ev.date and e.start == ev.start for e in existing):
+                    out.append(SuggestionPayload(kind=SuggestionKind.add, event=ev))
             elif not _same(merged := _merge(ev, match), match):
                 out.append(
                     SuggestionPayload(
@@ -149,6 +152,24 @@ def identity(p: SuggestionPayload) -> dict:
     for k in ("attendees", "absent"):
         ev[k] = sorted({n.strip() for n in ev[k]} - {""})
     return d
+
+
+def slot(p: SuggestionPayload) -> tuple | None:
+    """카드가 차지하는 일정 칸: 종류 + 대상 일정 + 날짜 + 숫자 시각. 제목·참석자는 보지 않는다
+    (모델이 실행마다 바꿔 쓴다). 취소는 대상 일정만 본다. 숫자 시각이 없으면 None(= identity로만 비교)."""
+    if p.kind == SuggestionKind.cancel:
+        return (p.kind, p.event_id)
+    return (p.kind, p.event_id, p.event.date, p.event.start) if p.event.start else None
+
+
+def contradicted(p: SuggestionPayload, events: list[ScheduleEvent]) -> bool:
+    """대기 카드의 칸(같은 날짜·같은 숫자 시각)을 이번 모델 출력이 폐기(rejected)나 취소로 읽었나.
+    제목은 보지 않는다(slot과 같다). 취소 카드와 숫자 시각이 없는 카드는 건드리지 않는다. 출력이 비면(실패 포함) False."""
+    if p.kind == SuggestionKind.cancel or p.event.start is None:
+        return False
+    said = {e.status for e in events if e.date == p.event.date and e.start == p.event.start}
+    # 같은 칸을 폐기이면서 확정으로도 적는 출력이 있다(모델이 헷갈린 것): 그때는 거두지 않는다
+    return EventStatus.confirmed not in said and bool(said & {EventStatus.rejected, EventStatus.cancelled})
 
 
 def unique(proposals: list[SuggestionPayload]) -> list[SuggestionPayload]:
