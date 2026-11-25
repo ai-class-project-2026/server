@@ -1,5 +1,5 @@
-"""Chat → schedule cards. Runs per channel after a debounce (plan 10.1):
-10s after the last message, or right away every 5th message."""
+"""Chat → schedule cards. Runs per channel after a debounce (plan 10.1): 10s after the last message.
+대화가 이어지는 동안에는 돌리지 않는다: 협상 도중에 돌리면 아직 안 정해진 시간으로 카드가 먼저 뜬다."""
 
 import asyncio
 import datetime as dt
@@ -39,10 +39,9 @@ WINDOW = 30  # turns of history the model sees (at most)
 GAP = dt.timedelta(hours=8)  # 대화가 이만큼 멈췄다가 다시 시작하면 새 대화로 본다
 FLOOR = 0  # 지금 대화가 이보다 짧으면 마지막 FLOOR개를 보낸다 (0 = 안 늘림)
 # GAP과 FLOOR는 3B 모델로 잰 값이다. 일정 모델을 바꾸면 다시 재서 맞춘다.
-EVERY_N = 5
+RECENT = 5  # 최근 이만큼의 메시지에 날짜·시간 말이 있을 때만 모델을 부른다
 
 _pending: dict[int, asyncio.Task] = {}
-_counts: dict[int, int] = {}
 # 채널마다 한 번에 하나만 실행한다: 겹쳐 돌면 둘 다 "아직 카드 없음"을 보고 같은 카드를 두 장 만든다.
 # (서버는 워커 1개로 돌린다. 여러 워커로 늘리면 DB의 유일 제약으로 바꿔야 한다)
 _locks: dict[int, asyncio.Lock] = {}
@@ -50,17 +49,14 @@ _locks: dict[int, asyncio.Lock] = {}
 
 def notify(channel_id: int) -> None:
     """Call after each saved message (only when the workspace has AI on)."""
-    _counts[channel_id] = _counts.get(channel_id, 0) + 1
     if task := _pending.pop(channel_id, None):
         task.cancel()
-    delay = 0 if _counts[channel_id] >= EVERY_N else settings.schedule_debounce_seconds
-    _pending[channel_id] = asyncio.create_task(_later(channel_id, delay))
+    _pending[channel_id] = asyncio.create_task(_later(channel_id, settings.schedule_debounce_seconds))
 
 
 async def _later(channel_id: int, delay: float) -> None:
     await asyncio.sleep(delay)
     _pending.pop(channel_id, None)
-    _counts[channel_id] = 0
     try:
         async with db.SessionLocal() as session:
             await run(session, channel_id)
@@ -114,7 +110,7 @@ async def _run(session: AsyncSession, channel_id: int) -> list[AISuggestion]:
             .limit(WINDOW)
         )
     ).all()[::-1]
-    if not rows or not trigger.should_run([r.text for r in rows[-EVERY_N:]]):
+    if not rows or not trigger.should_run([r.text for r in rows[-RECENT:]]):
         return []
 
     # 이 채널의 최근 카드 (망가진 카드는 건너뛴다). 팀이 답한(수락·무시) 카드가 다룬 마지막 메시지까지는 이미 끝난 대화다.
