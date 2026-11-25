@@ -66,6 +66,10 @@ def _seen_end(text: str, norm: str, context: list[str]) -> int:
 
 
 def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationResult:
+    # 앞 메시지는 판정에 쓰지 않아요. 문맥 학습 데이터가 합성이라 모델이 "이런 분위기면 정상"이라는
+    # 지름길을 배웠어요: "3시쯤?", "ㅇㅋ" 뒤의 "병신아"를 통과시키고, 욕 뒤의 "ㅋㅋ"를 가렸어요.
+    # API 모양은 그대로 두고 값만 버려요. 사람 대화로 다시 학습하기 전에는 되살리지 않아요.
+    context = []
     # 기본 읽기: 복원 글자와 certain 단어는 여기서만 나와요.
     norm = normalize.normalize_with_ends(text)[0]
     certain, ambiguous = [], []
