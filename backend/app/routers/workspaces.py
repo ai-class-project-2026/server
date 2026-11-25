@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import secrets
 
@@ -8,6 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from app.auth import CurrentUser
 from app.db.models import Channel, Member, Role, User, Workspace
 from app.deps import Session, require_member
+from app.realtime import hub
 from app.schemas import (
     InvitePreview,
     MemberOut,
@@ -62,6 +64,7 @@ async def update_workspace(
 ):
     await require_member(session, workspace_id, user, Role.owner)
     ws = await session.get(Workspace, workspace_id)
+    before = WorkspaceOut.model_validate(ws)
     was_on = ws.ai_schedule_on
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(ws, k, v)
@@ -70,6 +73,9 @@ async def update_workspace(
     elif not ws.ai_schedule_on:
         ws.ai_enabled_at = None
     await session.commit()
+    after = WorkspaceOut.model_validate(ws)
+    if after != before:  # 정말 바뀐 경우만: 다른 팀원 화면도 새 설정(가림 방식, 이름, AI)을 받게 한다
+        await _broadcast(session, workspace_id, "workspace_updated", after.model_dump(mode="json"))
     return ws
 
 
@@ -100,10 +106,21 @@ async def join_by_invite(code: str, user: CurrentUser, session: Session):
     if ws is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invalid invite code")
     # 여러 탭이 동시에 들어와도 안 터지게: 이미 멤버면 그냥 넘어간다 (있으면 무시하는 INSERT).
-    await session.execute(
+    res = await session.execute(
         insert(Member)
         .values(workspace_id=ws.id, user_id=user.id, role=Role.member)
         .on_conflict_do_nothing()
     )
     await session.commit()
+    if res.rowcount:  # 새로 들어온 경우만: 이 워크스페이스의 모든 채널에 알려 멤버 목록을 새로 받게 한다
+        joined = MemberOut(user_id=user.id, name=user.name, role=Role.member).model_dump(mode="json")
+        await _broadcast(session, ws.id, "member_joined", joined)
     return ws
+
+
+async def _broadcast(session: Session, workspace_id: int, type_: str, data) -> None:
+    """이 워크스페이스의 모든 채널 소켓에 알린다 (어느 채널 화면을 보고 있든 받게)."""
+    channel_ids = await session.scalars(
+        select(Channel.id).where(Channel.workspace_id == workspace_id)
+    )
+    await asyncio.gather(*(hub.broadcast(cid, type_, data) for cid in channel_ids))
