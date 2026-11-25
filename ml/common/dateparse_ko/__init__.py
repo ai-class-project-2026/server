@@ -45,7 +45,7 @@ _WEEK = re.compile(
     rf"(?<![가-힣])(?<!그 )(?P<prefix>다다음|다담|다음|이번|담)\s*주\s*(?P<wd>{_WD_WORD}){_TAIL}"
 )
 _WEEKEND = re.compile(
-    rf"(?<![가-힣])(?P<prefix>다다음|다담|다음|이번|담)?\s*주\s*말{_TAIL}"
+    rf"(?<![가-힣])(?:(?P<prefix>다다음|다담|다음|이번|담)\s*(?:주\s*)?)?주\s*말{_TAIL}"  # "다음 주말", "다음주 주말"
 )
 _MD = re.compile(rf"(?<!\d)(?P<month>\d{{1,2}})\s*/\s*(?P<day>\d{{1,2}}){_TAIL}")
 _MD_KO = re.compile(

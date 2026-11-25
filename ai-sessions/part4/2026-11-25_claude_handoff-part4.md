@@ -77,3 +77,33 @@ plan 레포에 만든 `seojinha` 브랜치를 원격과 로컬에서 지웠다. 
 ### 변경 사항
 
 - `eval/schedule/guideline.md` (기획서와 다른 점 표, 확정 날짜 줄은 표로 옮김)
+
+---
+
+## 프롬프트
+
+그래 좋아. 그리고 기획서대로 하면돼. 그리고 역할극도 너가 페르소나처럼 다루어서 해봐도 좋을거 같아. 진행시켜
+
+### 결과
+
+이름마다 말투를 정해서 파일럿 카드 20장, 약점 카드 24장을 AI가 혼자 연기했다(대화 44개). 정답(`events`)은 달지 않았다. 실제 테스트셋 카드 R001~R120은 하지 않았다.
+
+기획서 8.6 ②의 실제 테스트셋은 "팀원/친구"의 역할극이라 AI 대화를 섞으면 안 된다. 그래서 `data/schedule/real_test/ai_roleplay/`에 따로 두고 모든 줄에 `"source": "ai_persona"`를 적었다. 이 줄이 `test.jsonl`, `pilot.jsonl`, `hard.jsonl`에 들어가면 `check_labels.py`가 문제로 알린다. 이 폴더는 `real_test/` 안이라 `ml/schedule/build_train.py`가 학습에서 자동으로 뺀다.
+
+약점 대화도 파트 1의 v4 대화는 열지 않고 카드만 보고 썼다. 모든 사람이 카드 역할대로 말했는지(답하지 않을 사람은 말하지 않았는지) 스크립트로 확인했다. 파일럿은 10~15턴, 약점은 6~12턴이고 약점 24개 중 10개는 카드의 8턴보다 짧다.
+
+대화를 날짜 계산기에 넣어 보고 찾은 것:
+
+| 말 | 결과 | 처리 |
+|---|---|---|
+| "다음주 주말" (P009) | 이번 주말로 읽음 | 고침 (예시 5개 추가) |
+| 일요일에 "일요일이잖아" (H017) | 다음 주 일요일로 읽음 | 고치지 않음. 같은 요일 규칙의 부작용 |
+| "무슨 일 있어?" (H001, H002) | `일?` 후보로 알림 | 고치지 않음. 후보라서 LLM이 거른다 |
+
+"기획서대로"가 요일 규칙(8.3, 8.5)까지 되돌리라는 뜻인지는 확실하지 않아 규칙은 확정한 그대로 두고 사용자에게 물었다.
+
+### 변경 사항
+
+- 새 파일: `data/schedule/real_test/ai_roleplay/` (README.md, pilot_unlabeled.jsonl, hard_unlabeled.jsonl)
+- `eval/schedule/import_chat.py` (`--source`), `check_labels.py` (섞임 검사, source별 개수), `guideline.md`
+- `ml/common/dateparse_ko/__init__.py` (`_WEEKEND`), `examples.py`
