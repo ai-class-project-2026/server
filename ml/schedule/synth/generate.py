@@ -125,7 +125,7 @@ def to_prompt(sc: dict) -> str:
 
 def check(sc: dict, turns: list[Turn]) -> str | None:
     """Why this chat doesn't match its own label, or None when it does."""
-    if not 5 <= len(turns) <= 32:
+    if not sc.get("min_turns", 5) <= len(turns) <= sc.get("max_turns", 32):
         return "length"
     if {t.speaker for t in turns} - set(sc["participants"]):
         return "unknown speaker"
@@ -191,15 +191,17 @@ def agrees(record: dict, answer: dict) -> bool:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=40)
-    ap.add_argument("--out", default="data/schedule/synth/train.jsonl")
+    ap.add_argument("--out", default="data/schedule/synth/train_v2.jsonl")
     ap.add_argument("--model", default="gpt-6.1-sol")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--chunk", type=int, default=200)
+    ap.add_argument("--short", action="store_true", help="2~4 turn chats that often omit title, place or time")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
-    todo = [scenarios.make(rng) for _ in range(args.n)]
+    make = scenarios.make_short if args.short else scenarios.make
+    todo = [make(rng) for _ in range(args.n)]
     why = collections.Counter()
     kept = tokens_in = tokens_out = 0
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -280,6 +282,137 @@ def demo():
     assert agrees(moved, {"events": [old | {"status": "cancelled"}, ev]})  # old time reported as cancelled
     assert not agrees(moved, {"events": [old | {"status": "cancelled"}]})  # new time is missing
     print("ok", dict(counts))
+    focus_demo()
+
+
+def _focus_run(make, seed: int, n: int, by_kind: dict) -> collections.Counter:
+    """n scenarios from make(): the make() checks, focus_errors(), and agrees() on the gold.
+    Keeps the first scenario of each variant in by_kind for the mutation tests."""
+    import copy
+
+    rng, counts = random.Random(seed), collections.Counter()
+    for _ in range(n):
+        sc = make(rng)
+        counts[sc["type"]] += 1
+        by_kind.setdefault(sc["variant"], sc)
+        ref = dt.date.fromisoformat(sc["ref_date"])
+        assert "{" not in to_prompt(sc)
+        for e in sc["events"]:
+            assert not (e["start"] and e["time_text"]), e  # both None is fine: some chats name no time
+            assert not set(e["attendees"]) & set(e["absent"]), e
+            assert dt.date.fromisoformat(e["date"]) >= ref, e
+        assert not (errs := scenarios.focus_errors(sc)), (errs, sc)
+        record = to_record(sc, [Turn(speaker=sc["participants"][0], text="ㅇㅋ")] * sc["max_turns"])
+        ScheduleRequest.model_validate(record)
+        assert {t["ts"][:10] for t in record["dialogue"]} == {sc["ref_date"]}, sc  # the chat stays on one day
+        assert agrees(record, {"events": sc["events"]})
+        if sc["variant"] not in ("short_not_schedule",) and not sc["variant"].endswith("refuse"):
+            # agrees() can only drop a wrong judge answer if the gold has something to match
+            assert _keys(sc["events"], sc["existing_events"]), sc
+        for i, e in enumerate(sc["events"]):  # a judge that reads a hedge, a refusal or a pending change as a yes
+            if e["status"] == "proposed" or (e["status"] == "rejected" and sc["variant"].endswith("refuse")):
+                wrong = copy.deepcopy(sc["events"])
+                wrong[i]["status"] = "confirmed"
+                assert not agrees(record, {"events": wrong}), sc
+    return counts
+
+
+def focus_demo():
+    """scenarios.make_focus() and make_focus2(): the checks above, plus focus_errors() on every
+    gold, and proof that focus_errors() and agrees() reject golds and answers that are wrong."""
+    import copy
+
+    by_kind = {}
+    counts = _focus_run(scenarios.make_focus, 1, 3000, by_kind)
+    assert {"hedge", "time_shift", "constraint", "same_weekday"} <= set(counts), counts
+    assert counts["hedge"] > counts["time_shift"] > counts["constraint"] > counts["same_weekday"], counts
+    counts2 = _focus_run(scenarios.make_focus2, 2, 3000, by_kind)
+    assert set(counts2) == {"time_shift", "constraint"} and counts2["time_shift"] > 2 * counts2["constraint"], counts2
+    refers = collections.Counter(sc.get("refer") for sc in by_kind.values() if sc["type"] == "time_shift")
+    assert refers["title"] and refers["title_weekday"] and refers[None], refers
+
+    def fails(variant, change, why):
+        """Break one generated gold the way a buggy builder would; focus_errors() must say why."""
+        sc = copy.deepcopy(by_kind[variant])
+        change(sc)
+        errs = scenarios.focus_errors(sc)
+        assert any(why in e for e in errs), (variant, why, errs)
+
+    def same_start(sc):
+        sc["events"][1]["start"] = sc["events"][0]["start"]
+
+    def constraint_in_must(sc):
+        sc["must"].append(sc["cues"][0][0])
+
+    def event_at_constraint(sc):
+        t = sorted(scenarios._times_in(sc["cues"][0][0], dt.date.fromisoformat(sc["ref_date"])))[0]
+        sc["events"].insert(0, sc["events"][-1] | {"start": t, "status": "rejected", "attendees": []})
+
+    def swap_statuses(sc):
+        a, b = sc["events"]
+        a["status"], b["status"] = b["status"], a["status"]
+
+    def wrong_way(sc):
+        sc["shift"][0] = "earlier"
+
+    def after_leaving(sc):
+        sc["events"][-1]["start"], sc["must"][-1] = "23:00", "밤 11시"
+
+    fails("later_agree", same_start, "share a start")
+    fails("change_refuse", swap_statuses, "gold statuses")
+    fails("earlier_agree", swap_statuses, "gold statuses")
+    fails("later_short_agree", wrong_way, "wrong way")
+    fails("late_reject", constraint_in_must, "constraint time is an event time or a must expression")
+    fails("first", constraint_in_must, "constraint time is an event time or a must expression")
+    fails("late_reject", event_at_constraint, "constraint time is an event time")
+    fails("from", event_at_constraint, "constraint time is an event time")
+    fails("window", after_leaving, "outside what the constraints allow")
+    fails("chain", lambda sc: sc["events"][0].update(status="confirmed"), "hedge chain gold")
+    fails("resolved", lambda sc: sc["events"][0].update(status="proposed"), "hedge resolved gold")
+    fails("chain", lambda sc: sc["cues"].append(["오 괜찮을 수도? 물어보고"]), "reads as a date")  # 수 = 수요일?
+    fails("bare_confirmed", lambda sc: sc["events"][0].update(date=sc["ref_date"]), "same weekday")
+    fails("this_week_confirmed", lambda sc: sc["must"].__setitem__(0, sc["must"][0].replace("이번", "다음")),
+          "doesn't resolve")  # fmt: skip
+    fails("chain", lambda sc: sc["events"][0].update(date="2026-01-01"), "past date")
+    fails("mixed", lambda sc: sc["events"][0].update(absent=sc["participants"][:1]), "attendees")
+    fails("two_turn", lambda sc: sc["must"].append("다음주 월"), "no event's date")
+
+    # make_focus2: title-only / title + weekday changes, and constraint times that are chosen
+    def pick(test):
+        return next(v for v, sc in by_kind.items() if test(sc))
+
+    title = pick(lambda sc: sc.get("refer") == "title" and sc["variant"].endswith("_agree"))
+    title_day = pick(lambda sc: sc.get("refer") == "title_weekday" and sc["variant"].endswith("refuse"))
+
+    def next_week(sc):  # the event and its calendar entry a week later; the bare weekday still says this week
+        for e in sc["events"] + sc["existing_events"][:1]:
+            d = dt.date.fromisoformat(e["date"]) + dt.timedelta(days=7)
+            e["date"], e["weekday"] = d.isoformat(), scenarios.WEEKDAYS[d.weekday()]
+
+    def rename_calendar(sc):
+        sc["existing_events"][0]["title"] = "다른 일정"
+
+    def chosen_elsewhere(sc):  # the final time is no longer the constraint time
+        sc["events"][-1]["start"], sc["apart"], sc["must"][-1] = "21:30", ["밤 9시 반"], "밤 9시 반"
+
+    def dropped_at_constraint(sc):
+        sc["events"].insert(0, sc["events"][-1] | {"status": "rejected", "attendees": []})
+
+    fails(title, lambda sc: sc["must"].insert(0, "다음주 월"), "title-only change must say the title and no date")
+    fails(title, lambda sc: sc["must"].remove(sc["events"][0]["title"]), "title-only change must say the title")
+    fails(title, rename_calendar, "a gold date is not in the must expressions")
+    fails(title, same_start, "share a start")
+    fails(title_day, next_week, "the weekday doesn't resolve to the calendar date")
+    fails(title_day, lambda sc: sc["must"].__setitem__(0, "다음주 " + sc["must"][0]), "must say a bare weekday")
+    fails(title_day, swap_statuses, "gold statuses")
+    fails("chosen", chosen_elsewhere, "the chosen time is not the constraint time")
+    fails("chosen_first", chosen_elsewhere, "the chosen time is not the constraint time")
+    fails("chosen", lambda sc: sc.__setitem__("apart", []), "constraint time is an event time")  # no apart: old rule
+    fails("chosen", dropped_at_constraint, "also a dropped time")
+    fails("chosen_first", lambda sc: sc["events"][-1].update(status="proposed"), "constraint gold")
+    fails("chosen", lambda sc: sc["apart"].__setitem__(0, "밤 11시"), "not proposed on its own")
+    print("focus ok", dict(counts))
+    print("focus2 ok", dict(counts2), dict(refers))
 
 
 if __name__ == "__main__":

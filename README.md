@@ -45,14 +45,28 @@ SCHEDULE_LLM_URL=http://localhost:11434 SCHEDULE_LLM_MODEL=qwen2.5:3b make dev
 | 영역 | 엔드포인트 |
 |---|---|
 | 인증 | `POST /auth/signup`, `/auth/login`, `GET /auth/me` |
-| 워크스페이스 | `GET/POST /workspaces`, `GET/PATCH /workspaces/{id}`, `GET /workspaces/{id}/members`, `POST /invites/{code}` |
-| 채팅 | `GET/POST /workspaces/{id}/channels`, `GET/POST /channels/{id}/messages`, `WS /ws/channels/{id}?token=`, `POST /reports` |
+| 워크스페이스 | `GET/POST /workspaces`, `GET/PATCH /workspaces/{id}`, `GET /workspaces/{id}/members`, `GET /invites/{code}` (미리보기: 이름, AI 사용 여부), `POST /invites/{code}` (가입) |
+| 채팅 | `GET/POST /workspaces/{id}/channels`, `GET/POST /channels/{id}/messages`, `WS /ws/channels/{id}`, `POST /reports` |
 | 캘린더 | `GET/POST /workspaces/{id}/events`, `PATCH/DELETE /events/{id}` |
 | AI 카드 | `GET /channels/{id}/suggestions`, `POST /suggestions/{id}/action` |
 | 할 일 | `GET/POST /workspaces/{id}/todos`, `PATCH/DELETE /todos/{id}` |
-| AI | `POST /moderate`, `POST /schedule` (`AI_API_KEY` 설정 시 `X-API-Key` 필요) |
+| AI | `POST /moderate`, `POST /schedule` (`X-API-Key` 필요. `AI_API_KEY`를 안 정하면 막혀 있고, 개발할 때만 `ALLOW_OPEN_AI_API=1`로 연다 — `make dev`가 켠다) |
 
 WebSocket은 받기 전용이다: `{"type": "message" | "suggestion" | "suggestion_resolved", "data": ...}`.
+
+토큰을 URL에 넣으면 접속 로그에 남아서, **연결한 뒤 첫 프레임으로 인증**한다:
+
+1. `ws://…/ws/channels/{id}` 로 연결 (토큰 없이)
+2. 5초 안에 `{"type": "auth", "token": "<JWT>"}` 를 보낸다
+3. 서버가 `{"type": "ready"}` 를 보내면 그때부터 메시지가 온다
+
+인증 실패, 없는 채널, 멤버가 아님, 5초 초과는 모두 연결을 받은 뒤 코드 `1008`로 닫는다(네트워크 오류와 구분하려고). 토큰이 만료되거나 멤버에서 빠지면 서버가 `1008`로 닫는다. 연결이 끊겼다가 다시 붙이면 놓친 메시지는 `GET /channels/{id}/messages`로 채운다.
+
+메시지 `POST`에 `client_id`(최대 64자)를 같이 보내면, 응답을 못 받고 다시 보내도 메시지가 두 번 저장되지 않는다(같은 메시지를 돌려준다).
+
+AI 일정 분석은 AI를 **켠 시각 이후**의 메시지만 본다(`workspaces.ai_enabled_at`). 껐다 켜면 그 시각부터 다시 시작한다.
+
+요청 본문은 1MiB까지(`MAX_BODY_BYTES`). Windows에서 `alembic`을 직접 쓸 때는 `PYTHONPATH=backend;ml/common`을 먼저 설정한다(`alembic.ini`의 경로 구분자가 `:`라서).
 
 ## 흐름
 

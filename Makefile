@@ -1,5 +1,5 @@
 dev:
-	PYTHONPATH=ml/common uv run uvicorn app.main:app --reload --app-dir backend --reload-dir backend --reload-dir ml/common
+	ALLOW_OPEN_AI_API=1 PYTHONPATH=ml/common uv run uvicorn app.main:app --reload --app-dir backend --reload-dir backend --reload-dir ml/common
 
 migrate:
 	uv run alembic upgrade head

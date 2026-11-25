@@ -6,8 +6,13 @@ Each base word is expanded with augment.similar_sound.word_variants
 (시발 → 쉬발, 씨벌, 쓰빨 ...). A variant is dropped when
   1. it is a normal word: it shows up in clean sentences of the training data
      (data/moderation/raw/*.jsonl, run prepare_public.py first) or is in NOT_BAD
+     (NOT_BAD는 augment/similar_sound.py에 있고 증강도 같이 써요)
   2. it is already caught: an existing bad word is part of it (개쌔끼 ⊃ 쌔끼)
 Test sets A/C/D are never read here. Rerun after changing BASES or NOT_BAD.
+
+결과는 단어 목록처럼 둘로 나눠요 (기획서 9.8): AMBIGUOUS에 있는 단어의 변형은
+badwords_soundalike_ambiguous.txt (모델이 판단), 나머지는 badwords_soundalike.txt.
+문장을 봐야 아는 말("너임마청년")은 BASES에 넣지 않아요.
 """
 
 import json
@@ -20,10 +25,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "backend"), str(Path(__file__).parent)]
 os.environ.setdefault("JWT_SECRET", "eval-only-placeholder-secret-0000000")  # app config needs it
 from app.moderation.normalize import normalize  # noqa: E402
-from augment.similar_sound import word_variants  # noqa: E402
+from augment.similar_sound import NOT_BAD, word_variants  # noqa: E402
 
 MOD = ROOT / "backend/app/moderation"
 OUT = MOD / "badwords_soundalike.txt"
+OUT_AMBIGUOUS = MOD / "badwords_soundalike_ambiguous.txt"
 RAW = ROOT / "data/moderation/raw"
 
 # (word, how many syllables may change). 1 for short words that sit close to
@@ -36,22 +42,23 @@ BASES = [
     ("창녀", 1), ("썅년", 1), ("쌍년", 1), ("개년", 1), ("씹년", 1),
     ("닥쳐", 1), ("꺼져", 1), ("또라이", 2), ("찐따", 1), ("개소리", 2),
     ("염병할", 2), ("섹스", 1), ("딸딸이", 2), ("빠구리", 2),
-    ("니엄마창녀", 2), ("너임마청년", 2),
 ]  # fmt: skip
+
+# 멀쩡한 뜻도 있는 BASES ("불이 꺼져요"). badwords_ambiguous.txt와 같은 기준이고,
+# 이 단어의 변형은 ambiguous 파일로 가요.
+AMBIGUOUS = {"등신", "닥쳐", "꺼져"}
+
+# 진짜 욕의 변형인데 코퍼스에 한두 번 나와서 "멀쩡한 말"로 잘못 걸러지는 단어.
+# 여기에 있으면 코퍼스 횟수 검사를 건너뛰어요 (NOT_BAD와 "이미 걸림" 검사는 그대로).
+# "꺼처"는 "것처럼"을 잘못 쓴 "꺼처럼"에도 들어 있어서 넣지 않아요.
+KEEP = {"스팔", "쓰발", "앰창", "천나", "창너", "진따", "찐타", "섹수"}
+
+# 욕으로 많이 쓰지만("젖같다") 멀쩡한 글에도 나오는 변형: "엄마 젖 같이"는 한 글자
+# 뒤 띄어쓰기가 지워져 "젖같이"가 돼요. 지우지 않고 ambiguous 파일로 보내 모델이 판단해요.
+MODEL_ONLY = {"젖같"}
 
 # BASES leaves out 니기미 and 애미뒤: their variants hit normal speech once a
 # 1-letter word loses its space ("니 키 미쳤다" → 니키미, "왜 미디 써" → 왜미디).
-
-# Normal words the training data may not contain. Add here when a test finds one.
-NOT_BAD = {
-    "장녀", "장년", "정녀", "세기", "새기", "세끼", "쐐기", "변신", "평신", "거저",
-    "까져", "게놈", "에미", "병진", "병선", "촌나", "닦쳐", "색스", "턱쳐",
-    "따따이", "또라히", "캐년", "시뻘", "풍신", "상년", "엠청", "거져", "병승",
-    # "딱 쳐다봤다" → 딱쳐다봤다 (a 1-letter word loses its space in normalize)
-    "딱쳐", "딲쳐", "탁쳐", "떡쳐", "전너", "전냐",
-    # "좋더라이거" written without spaces
-    "더라이", "더라의", "더라으", "더라위", "더랴이", "더러이",
-}  # fmt: skip
 
 
 def load(name: str) -> list[str]:
@@ -82,19 +89,29 @@ def main():
     if not any(RAW.glob("*.jsonl")):
         sys.exit(f"no training data in {RAW}: run ml/moderation/prepare_public.py first")
     known = load("badwords.txt")
-    candidates = {}  # variant -> base
+    known_amb = load("badwords_ambiguous.txt")
+    candidates = {}  # 변형 -> ambiguous BASES에서만 나왔으면 True
     for base, k in BASES:
         for v in word_variants(base, k):
-            candidates.setdefault(normalize(v)[0], base)
+            n = normalize(v)[0]
+            candidates[n] = candidates.get(n, True) and base in AMBIGUOUS
+    for v in MODEL_ONLY & candidates.keys():
+        candidates[v] = True
     bad, clean = corpus_counts(max(map(len, candidates)))
 
-    kept, normal, covered = [], [], 0
+    kept, kept_amb, normal, covered = [], [], [], 0
     for v in sorted(candidates, key=lambda w: (len(w), w)):  # short first
         b, c = bad[v], clean[v]
-        if v in NOT_BAD or (c and b < 3 * c):  # normal word (allow some label noise)
+        if v in NOT_BAD or (c and b < 3 * c and v not in KEEP):  # normal word (allow some label noise)
             normal.append((v, b, c))
         elif any(w in v for w in known + kept):
             covered += 1
+        # "게새끼"(개새끼의 변형)에는 ambiguous 단어 "새끼"가 들어 있고 "게 새끼"일 수도
+        # 있어요. certain 목록에 넣지 않고, 이미 ambiguous 단어에 걸리니 버려요.
+        elif any(w in v for w in known_amb + kept_amb):
+            covered += 1
+        elif candidates[v]:
+            kept_amb.append(v)
         else:
             kept.append(v)
 
@@ -103,12 +120,19 @@ def main():
         "# Similar-sound variants of the words in BASES (plan 9.3 유사 발음).\n"
     )
     OUT.write_text(header + "".join(w + "\n" for w in kept), encoding="utf-8")
+    OUT_AMBIGUOUS.write_text(
+        header
+        + "# Ambiguous words (plan 9.8): the model decides these.\n"
+        + "".join(w + "\n" for w in kept_amb),
+        encoding="utf-8",
+    )
     print(f"{len(candidates)} variants of {len(BASES)} words")
     print(f"  dropped as normal words: {len(normal)}")
     for v, b, c in sorted(normal, key=lambda x: -x[2]):
         print(f"    {v}\tprofane {b}\tclean {c}")
     print(f"  dropped, already caught by a shorter bad word: {covered}")
     print(f"  wrote {len(kept)} words to {OUT.relative_to(ROOT)}")
+    print(f"  wrote {len(kept_amb)} words to {OUT_AMBIGUOUS.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

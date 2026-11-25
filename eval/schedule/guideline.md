@@ -1,19 +1,33 @@
 # 실제 테스트셋 만들기와 정답 달기 (파트 4)
 
 기획서 8.3(정답 기준), 8.5(날짜 규칙), 8.6 ②(실제 테스트셋)를 라벨러가 바로 쓸 수 있게 정리했다.
-이 파일과 기획서가 다르면 기획서를 따른다.
+이 파일과 기획서가 다르면 기획서를 따른다. (요일 규칙은 2026-11-25에 기획서 8.3, 8.5도 같이 고쳐서 서로 같다)
 
 ## 순서
 
 | 단계 | 하는 일 | 명령 / 파일 |
 |---|---|---|
-| 1 | 카드 만들기 (이미 120장 있음) | `uv run python eval/schedule/cards.py` → `data/schedule/real_test/cards/` |
+| 1 | 카드 만들기 (이미 있음, 아래 "카드 묶음") | `uv run python eval/schedule/cards.py` → `data/schedule/real_test/cards/` |
 | 2 | 카드 한 장마다 단톡방을 만들고 역할극. 사람마다 자기 역할 칸만 보여 주기 | `cards.md` |
 | 3 | 단톡 내보내기(.txt)를 테스트셋 한 줄로 바꾸기 | `uv run python eval/schedule/import_chat.py R001 chat.txt` → `unlabeled.jsonl` |
 | 4 | 라벨러 두 명이 `unlabeled.jsonl`을 각자 복사해 `events`를 채우기. 서로 보지 않기 | `labels_a.jsonl`, `labels_b.jsonl` |
 | 5 | 각자 실수 검사 | `uv run python eval/schedule/check_labels.py data/schedule/real_test/labels_a.jsonl` |
 | 6 | 두 사람이 다르게 단 것만 모아서 토론하고 정하기 | `uv run python eval/schedule/check_labels.py labels_a.jsonl labels_b.jsonl` |
 | 7 | 합의한 최종본을 `test.jsonl`로 저장하고 커밋 | `data/schedule/real_test/test.jsonl` |
+
+### 카드 묶음
+
+| 묶음 | 카드 | 대화가 쌓이는 파일 | 최종본 |
+|---|---|---|---|
+| 실제 R001~R120 | `real_test/cards/` | `real_test/unlabeled.jsonl` | `real_test/test.jsonl` (100줄 이상) |
+| 파일럿 P001~P020 | `pilot/cards/` | `pilot/unlabeled.jsonl` | `pilot/pilot.jsonl` (20줄, 3/3/4/2/3/3/2) |
+| 약점 H001~H024 | `real_test/hard_cards/` | `real_test/hard_unlabeled.jsonl` | `real_test/hard.jsonl` (약점마다 6줄) |
+
+* 모두 `data/schedule/` 아래. P와 H 카드는 만들어 둔 파일을 그대로 쓴다. `import_chat.py`가 카드 번호 첫 글자로 알맞은 파일에 넣는다
+* 약점 줄의 `weakness`는 고치지 않는다 (`score.py`가 이걸로 묶는다). 유형별 개수는 `check_labels.py` 끝에 나온다
+* 최종본의 대화와 정답은 **사람만** 만든다. AI에게 시키거나 AI 채팅에 붙여 넣지 않고, 파트 1의 학습용 대화를 보고 만들지 않는다
+
+### 지킬 것
 
 * 카드는 연기 부탁일 뿐 정답이 아니다. 대화가 카드와 다르게 흘러갔으면 **대화대로** 정답을 단다. `type`도 실제 흐름에 맞게 고친다
 * 일치도 숫자가 필요하면 `uv run python eval/schedule/score.py labels_a.jsonl labels_b.jsonl --label agreement --report agreement.csv`
@@ -53,6 +67,9 @@
 
 * "아마?", "일정 봐야 할 듯", "난 아무때나"는 동의가 아니다 → 다른 동의가 모자라면 `proposed`
 * 번복이 있으면 마지막 안만 `confirmed`. 버려진 안은 `rejected`로 남긴다 (점수는 `confirmed`, `cancelled`만 센다)
+* "봐서", "그날 봐서"도 동의가 아니다 ("ㅇㅇ 나도 봐서"도). 나중에 확실히 된다고 말했으면 그때부터 동의다
+* "그때까지 바쁘다"("6시까지 학원")는 사정을 말한 것이지 6시에 하자는 제안이 아니다. 일정으로 적지 않는다
+* 기존 일정의 시각이나 날짜를 바꾸기로 했으면 옛 일정은 `rejected`, 바뀐 일정은 `confirmed` (`cancelled`가 아니다). 새로 말하지 않은 `title`, `location`은 기존 값 그대로
 * "목요일 거 못 할 듯"이라고만 하고 결론이 없으면 취소가 아니다. `existing_events`의 일정은 다시 적지 않는다
 * 취소하고 새 날짜를 잡았으면 옛 일정은 `cancelled`, 새 일정은 `confirmed`로 둘 다 적는다
 
@@ -62,12 +79,16 @@
 * 늦게 온다는 사람은 `attendees`에 넣고 `note`에 적는다 (예: `"예준 30분 늦음"`)
 * 아무 말도 안 한 사람도 확정되면 `attendees`에 넣는다
 
-## 날짜와 시간 (기준일 = `ref_datetime`)
+## 날짜와 시간 (기준일 = 그 메시지를 보낸 날)
+
+기준일은 보통 `ref_datetime`의 날짜다. 대화가 자정을 넘겼으면 그 메시지 `ts`의 날짜다 (서버와 같다).
 
 | 표현 | 정답 |
 |---|---|
 | 오늘/내일·낼/모레/글피 | 기준일 +0/+1/+2/+3 |
-| 요일만, 이번주 X요일 | 기준일 이후 가장 가까운 그 요일 (기준일이 그 요일이면 당일) |
+| 요일만 (`수`, `수요일`) | 기준일 다음에 오는 그 요일. **기준일이 그 요일이면 다음 주** (수요일에 "수 보자" → 7일 뒤) |
+| 이번주 X요일 | 기준일 이후 가장 가까운 그 요일. **기준일이 그 요일이면 당일** |
+| 날짜 + 요일 (`10/15(목)`, `오늘이 수요일이니까`) | 날짜를 따른다. 요일은 따로 세지 않는다 |
 | 다음주·담주 X | 기준일이 속한 주(월요일 시작) 다음 주의 X요일 |
 | 다다음주 X | 다음주 X + 7일 |
 | 이번 주말 | 이번 주 토요일 (토요일이 지났으면 일요일) |
@@ -80,6 +101,8 @@
 
 * `start`는 항상 두 자리 24시간 `"HH:MM"`. 오전/오후 없는 6시는 오후라서 `"18:00"`
 * `weekday`는 날짜의 요일 한 글자. `check_labels.py`가 틀린 요일을 잡아 준다
+* 한 글자 요일(`목`, `수`, `일`)은 다른 낱말일 수 있다 ("목 아파", "할 일"). 진짜 요일인지는 라벨러가 대화를 보고 정한다
+* 대화에서 다르게 합의했으면("오늘 말하는 거지?" "ㅇㅇ") 규칙표보다 그 합의가 정답이다
 * 날짜가 헷갈리면 날짜 계산기로 확인: `uv run python -c "import sys, datetime as dt; sys.path.insert(0, 'ml/common'); from dateparse_ko import parse; print(parse('다음주 화', dt.date(2026, 11, 16)))"`. 단, 계산기도 틀릴 수 있으니 규칙표가 우선이다
 
 ## 적지 않는 것 (8.3 제외 대상)
@@ -89,3 +112,15 @@
 * 날짜 없는 막연한 약속: "담에 놀러가자", "시험 끝나면 보자"
 
 이런 것만 있는 대화는 `events: []`, `type: "not_schedule"`이다.
+
+## 평가 돌리기
+
+`make`가 없는 Windows PowerShell에서 서버 켜기 (`.env`에 `JWT_SECRET` 필요. 주소와 모델 이름은 파트 1이 알려 준다):
+
+```powershell
+$env:ALLOW_OPEN_AI_API="1"; $env:PYTHONPATH="ml/common"
+$env:SCHEDULE_LLM_URL="<주소>"; $env:SCHEDULE_LLM_MODEL="<모델 이름>"
+uv run uvicorn app.main:app --app-dir backend
+```
+
+예측과 채점 명령은 `README.md`의 "일정 AI 학습/평가"에 있다. 서버 창에 `schedule LLM failed`가 하나라도 있으면 그 점수는 쓰지 않고 다시 돌린다 (실패한 답이 빈 목록으로 저장된다).

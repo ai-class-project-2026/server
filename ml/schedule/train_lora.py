@@ -39,6 +39,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--base", default="Qwen/Qwen2.5-3B-Instruct")
     ap.add_argument("--epochs", type=float, default=2)
+    ap.add_argument("--no-4bit", action="store_true", help="train on full bf16 weights (needs a 24GB GPU)")
+    ap.add_argument("--seed", type=int, default=42, help="training seed; the val split stays fixed")
     args = ap.parse_args()
 
     import torch
@@ -55,15 +57,18 @@ def main():
     split = Dataset.from_list(rows).train_test_split(test_size=0.05, seed=0)
 
     tok = AutoTokenizer.from_pretrained(args.base)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base,
-        quantization_config=BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        ),
-        device_map="auto",
+    weights = (
+        {"torch_dtype": torch.bfloat16}
+        if args.no_4bit
+        else {
+            "quantization_config": BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+        }
     )
+    model = AutoModelForCausalLM.from_pretrained(args.base, device_map="auto", **weights)
     trainer = SFTTrainer(
         model=model,
         processing_class=tok,
@@ -78,8 +83,10 @@ def main():
         ),
         args=SFTConfig(
             output_dir=args.out,
+            seed=args.seed,
             num_train_epochs=args.epochs,
             per_device_train_batch_size=2,
+            per_device_eval_batch_size=2,  # the default 8 nearly fills a 16GB GPU on long chats
             gradient_accumulation_steps=8,
             learning_rate=2e-4,
             max_length=2048,

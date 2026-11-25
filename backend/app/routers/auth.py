@@ -12,6 +12,8 @@ from app.db.session import get_session
 from app.schemas import LoginIn, SignupIn, TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+# 없는 이메일도 똑같이 해시 검사를 하게 하려는 가짜 해시 (응답 시간으로 가입 여부를 알아내지 못하게)
+_DUMMY_HASH = auth.hash_password("dummy-password-for-timing")
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 
@@ -34,7 +36,11 @@ async def signup(body: SignupIn, session: Session):
 async def login(body: LoginIn, session: Session):
     user = await session.scalar(select(User).where(User.email == body.email.lower()))
     # Same error for unknown email and wrong password: don't reveal which emails exist.
-    if not (user and auth.verify_password(body.password, user.password_hash)):
+    # 이메일이 없어도 가짜 해시로 똑같이 검사해서 걸리는 시간도 같게 만든다.
+    ok = auth.verify_password(
+        body.password, user.password_hash if user else _DUMMY_HASH
+    )
+    if not (user and ok):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong email or password")
     return TokenOut(access_token=auth.create_token(user.id))
 

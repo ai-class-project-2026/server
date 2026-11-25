@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.auth import hash_password
 from app.db.models import Channel, Event, Member, Message, Role, Todo, User, Workspace
 from app.db.session import SessionLocal
+from app.schedule.prompt import KST
 
 NAMES = {"민준": "minjun", "서연": "seoyeon", "지호": "jiho", "하은": "haeun"}
 CHAT = [
@@ -33,7 +34,14 @@ async def main():
             n: User(name=n, email=f"{e}@demo.com", password_hash=pw)
             for n, e in NAMES.items()
         }
-        ws = Workspace(name="팀플 데모", invite_code="demo", ai_schedule_on=True)
+        ws = Workspace(
+            name="팀플 데모",
+            invite_code="demo-team",  # "demo"는 웹의 데모 화면 주소(/w/demo)라서 쓰면 안 된다
+            ai_schedule_on=True,
+            # 비어 있으면 AI가 아무 메시지도 안 본다. 아래 대화보다 확실히 앞선 시각이어야 한다
+            # (SQLite는 시각을 글자로 비교해서 같은 초에 저장된 메시지는 빠진다)
+            ai_enabled_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1),
+        )
         s.add_all([*users.values(), ws])
         await s.flush()
         ch = Channel(workspace_id=ws.id, name="일반")
@@ -49,7 +57,7 @@ async def main():
         await s.flush()
         for name, text in CHAT:
             s.add(Message(channel_id=ch.id, user_id=users[name].id, text=text))
-        today = dt.date.today()
+        today = dt.datetime.now(KST).date()  # 한국 날짜 기준
         s.add_all(
             [
                 Event(
@@ -78,7 +86,7 @@ async def main():
             ]
         )
         await s.commit()
-        print("seeded: minjun@demo.com … haeun@demo.com / demo1234, invite code 'demo'")
+        print("seeded: minjun@demo.com … haeun@demo.com / demo1234, invite code 'demo-team'")
         print("demo: log in as 민준 and send '그럼 목 7시 디코로 확정' → AI card")
 
 

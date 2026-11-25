@@ -25,6 +25,7 @@ CURSE = "https://raw.githubusercontent.com/2runo/Curse-detection-data/ff241621e1
 BEEP = "https://raw.githubusercontent.com/kocohub/korean-hate-speech/f8d05dce2b22007bb149e5139c0060c68ad8f94b"
 KMHAS = "https://raw.githubusercontent.com/adlnlp/K-MHaS/ec7a7e775d650b825872f6f538fc717822cdfc1a"
 UNSMILE = "https://raw.githubusercontent.com/smilegate-ai/korean_unsmile_dataset/569ab5f495e046911898805d3bee92469988dcd9"
+CHATBOT = "https://raw.githubusercontent.com/songys/Chatbot_data/4cf20d13fc46f5037fd1c531cd566e2dd9f72974"
 KOTOX = "https://huggingface.co/datasets/ssgyejin/KOTOX/resolve/87907083ce28109467c72efad19792cd176ee1ca"
 
 # KOTOX's toxic side is mostly implied offense, so keep only rows with a real swear.
@@ -85,6 +86,14 @@ def kotox(*splits: str):
                     yield r["toxic_obfuscated_texts"], 1
 
 
+def chatbot():  # everyday chat, which the comment datasets above lack
+    swears = (*EXPLICIT, "ㅅㅂ", "ㅂㅅ", "ㅈㄴ", "미친", "꺼져", "썅")
+    with fetch("chatbot", CHATBOT, "ChatbotData.csv").open(encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            if not any(w in r["Q"].replace(" ", "") for w in swears):
+                yield r["Q"], 0
+
+
 def unsmile():  # CC BY-NC-ND: evaluation only, never augmented or trained on
     for file in ("unsmile_train_v1.0.tsv", "unsmile_valid_v1.0.tsv"):
         for r in tsv(fetch("unsmile", UNSMILE, file)):
@@ -123,6 +132,7 @@ def main():
             "kmhas": list(kmhas("train", "valid")),
             "beep_clean": list(beep()),
             "kotox": list(kotox("train", "valid")),
+            "chatbot_clean": list(chatbot()),
         },
         RAW,
     )

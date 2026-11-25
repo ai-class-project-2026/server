@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     # /moderate and /schedule: required X-API-Key when set (eval scripts, Discord bot)
     ai_api_key: str = ""
+    # 키가 비어 있어도 /moderate, /schedule을 열어 두려면 1 (개발용: make dev 에서만 켠다)
+    allow_open_ai_api: bool = False
+    max_body_bytes: int = 1_048_576  # 요청 본문 최대 크기(1MiB). 넘으면 413
     # Schedule LLM behind an OpenAI-compatible server (llama.cpp, vLLM, Ollama...).
     # Empty = schedule AI off; chat still works.
     schedule_llm_url: str = ""
