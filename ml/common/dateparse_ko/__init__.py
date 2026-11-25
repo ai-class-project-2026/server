@@ -86,7 +86,7 @@ def _week_monday(day: dt.date) -> dt.date:
 
 
 def _nearest(ref: dt.date, wd: int) -> dt.date:
-    """기준일 이후 가장 가까운 요일. 기준일 당일이 그 요일이면 당일."""
+    """'이번주 X요일': 기준일 이후 가장 가까운 요일. 기준일 당일이 그 요일이면 당일."""
     return ref + dt.timedelta(days=(wd - ref.weekday()) % 7)
 
 
@@ -187,6 +187,32 @@ def _resolve(hits: list[_Hit]) -> list[_Hit]:
     return chosen
 
 
+# "10/15(목)", "10/15 목요일", "목요일 10/15", "오늘이 수요일이니까": 요일이 바로 옆 날짜를 다시 말한 것
+_APPOSED = re.compile(r"이?\s*[(（]?\s*")
+
+
+def _drop_apposed(text: str, hits: list[_Hit], bare: list[_Hit]) -> list[_Hit]:
+    """바로 옆 날짜의 요일을 다시 말한 것뿐인 요일은 뺀다. 안 그러면 기준일로 따로 계산해서
+    "10/15 목요일"이 10/15와 10/1 두 날짜가 된다. 날짜의 실제 요일과 같을 때만 뺀다
+    (요일이 다르면 어느 쪽이 맞는지 모르니 둘 다 알린다)."""
+    bare_ids = {id(h) for h in bare}
+    out = []
+    for i, hit in enumerate(hits):
+        if id(hit) in bare_ids:
+            prev = hits[i - 1] if i else None
+            after = hits[i + 1] if i + 1 < len(hits) else None
+            near = [prev] if prev and _APPOSED.fullmatch(text[prev.end : hit.start]) else []
+            if after and not text[hit.end : after.start].strip():  # 뒤쪽은 띄어쓰기만: "목요일 10/15"
+                near.append(after)
+            if any(
+                h.date and id(h) not in bare_ids and h.date != hit.date and h.date.weekday() == hit.date.weekday()
+                for h in near
+            ):
+                continue
+        out.append(hit)
+    return out
+
+
 def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
     hits: list[_Hit] = []
     for match in _WEEK.finditer(text):
@@ -209,6 +235,7 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
         found = ref + dt.timedelta(days=_REL[match.group("word")])
         # "낼"은 "내일"의 줄임말이지만 "화 낼 일"처럼 "내다"의 활용형도 되므로 후보로만 알린다
         hits.append(_Hit(match.start(), match.end(), date=found, tentative=match.group("word") == "낼"))
+    bare: list[_Hit] = []
     for match in _BARE_WD.finditer(text):
         kind = _bare_kind(text, match.start(), match.end())
         if kind is None:
@@ -217,8 +244,8 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
         if re.search(r"그\s*(?:전주|다음주)\s*$", text[: match.start()]):
             continue
         found = _upcoming(ref, _wd_index(match.group("wd")))
-        hits.append(_Hit(match.start(), match.end(), date=found, tentative=kind == "tentative"))
-    return _resolve(hits)
+        bare.append(_Hit(match.start(), match.end(), date=found, tentative=kind == "tentative"))
+    return _drop_apposed(text, _resolve([*hits, *bare]), bare)
 
 
 def _shifts(text: str, ref: dt.date, atoms: list[_Hit]) -> list[_Hit]:
