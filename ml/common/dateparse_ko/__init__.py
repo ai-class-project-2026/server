@@ -45,7 +45,7 @@ _WEEK = re.compile(
     rf"(?<![가-힣])(?<!그 )(?P<prefix>다다음|다담|다음|이번|담)\s*주\s*(?P<wd>{_WD_WORD}){_TAIL}"
 )
 _WEEKEND = re.compile(
-    rf"(?<![가-힣])(?P<prefix>다다음|다담|다음|이번|담)?\s*주\s*말{_TAIL}"
+    rf"(?<![가-힣])(?:(?P<prefix>다다음|다담|다음|이번|담)\s*(?:주\s*)?)?주\s*말{_TAIL}"  # "다음 주말", "다음주 주말"
 )
 _MD = re.compile(rf"(?<!\d)(?P<month>\d{{1,2}})\s*/\s*(?P<day>\d{{1,2}}){_TAIL}")
 _MD_KO = re.compile(
@@ -86,7 +86,7 @@ def _week_monday(day: dt.date) -> dt.date:
 
 
 def _nearest(ref: dt.date, wd: int) -> dt.date:
-    """기준일 이후 가장 가까운 요일. 기준일 당일이 그 요일이면 당일."""
+    """'이번주 X요일': 기준일 이후 가장 가까운 요일. 기준일 당일이 그 요일이면 당일."""
     return ref + dt.timedelta(days=(wd - ref.weekday()) % 7)
 
 
@@ -187,6 +187,26 @@ def _resolve(hits: list[_Hit]) -> list[_Hit]:
     return chosen
 
 
+# "10/15(목)", "10/15 목요일", "오늘이 수요일이니까": 바로 앞 날짜의 요일을 다시 말한 것
+_APPOSED = re.compile(r"이?\s*(?:[(（]\s*)?")
+
+
+def _drop_apposed(text: str, hits: list[_Hit]) -> list[_Hit]:
+    """앞 날짜의 요일을 다시 말했을 뿐인 요일은 뺀다. 안 그러면 "10/15 목요일"이 10/15와 10/1 두 날짜가 된다.
+    요일이 다르면 어느 쪽이 맞는지 모르니 둘 다 알린다. 요일이 앞에 오면("목요일 다음주 목요일 중에",
+    "수요일 오늘 중에") 다른 날을 나란히 말한 것일 수 있어서 빼지 않는다."""
+    out: list[_Hit] = []
+    for hit in hits:
+        prev = out[-1] if out else None
+        if not (
+            prev and prev.date and re.fullmatch(_WD_WORD, text[hit.start : hit.end])
+            and prev.date != hit.date and prev.date.weekday() == hit.date.weekday()
+            and _APPOSED.fullmatch(text, prev.end, hit.start)
+        ):
+            out.append(hit)
+    return out
+
+
 def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
     hits: list[_Hit] = []
     for match in _WEEK.finditer(text):
@@ -218,7 +238,7 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
             continue
         found = _upcoming(ref, _wd_index(match.group("wd")))
         hits.append(_Hit(match.start(), match.end(), date=found, tentative=kind == "tentative"))
-    return _resolve(hits)
+    return _drop_apposed(text, _resolve(hits))
 
 
 def _shifts(text: str, ref: dt.date, atoms: list[_Hit]) -> list[_Hit]:

@@ -9,6 +9,7 @@
 start와 time_text를 같이 적지 않았는지, 참석/불참이 참여자 안에 있는지,
 확정 일정이 기준일보다 과거가 아닌지(8.3 제외 대상), type 값,
 확정 일정의 참석+불참이 참여자 전체와 딱 맞는지, type과 status가 서로 맞는지.
+끝에 type별(약점 카드는 weakness별) 개수를 보여 준다.
 두 라벨러 비교는 일정의 모든 칸을 보고, 참석/불참 이름은 순서를 무시한다.
 """
 
@@ -17,6 +18,7 @@ import datetime as dt
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 WD = "월화수목금토일"
@@ -173,6 +175,7 @@ def main():
             for p in _safe_problems(rec):
                 count += 1
                 print(f"{path}:{n} {rec.get('card_id', '')} {p}")
+        print(path, dict(Counter(str(r.get("weakness") or r.get("type")) for r in recs)))
         print(f"{path}: {len(recs)}줄 검사, 문제 {count}개")
         return recs, count
 

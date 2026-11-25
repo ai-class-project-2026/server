@@ -86,6 +86,7 @@ def main():
     # 임시 파일에 쓰고, 끝까지 성공했을 때만 기존 출력을 바꾼다 (중간에 실패해도 이전 결과가 남는다)
     dst.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=dst.parent, prefix=dst.name + ".", suffix=".tmp")
+    answered = False
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for req in reqs:
@@ -97,6 +98,7 @@ def main():
                     else via_claude(req, args.model)
                 )
                 ms = round((time.perf_counter() - t) * 1000)
+                answered |= bool(events)
                 row = {"events": events, "latency_ms": ms}
                 usage = via_claude.last_usage if args.target == "claude" else None
                 if usage:  # 서버(/schedule)는 토큰 수를 알려 주지 않아서 claude일 때만 남는다
@@ -108,6 +110,9 @@ def main():
                         ) / 1e6
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
                 print(f"{ms}ms {len(events)} events", file=sys.stderr)
+        # 서버는 LLM이 꺼져 있어도 200과 빈 목록을 준다. 그대로 채점하면 오등록률이 0%로 좋게 나온다
+        if not answered and any(json.loads(ln).get("events") for ln in lines):
+            sys.exit("답이 전부 비어서 저장하지 않았어요. LLM 서버와 SCHEDULE_LLM_URL을 확인해 주세요")
         os.replace(tmp, dst)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
