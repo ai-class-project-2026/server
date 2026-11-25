@@ -47,3 +47,18 @@
 - `eval/schedule/cards.py`, `import_chat.py`, `check_labels.py`, `score.py`, `run.py`, `guideline.md`
 - 새 파일: `data/schedule/pilot/cards/`, `data/schedule/real_test/hard_cards/`
 - plan 레포 `README.md` 8.3, 8.5, 8.6, 8.9, 16.3, 17.5 (파트 4가 맞는 줄만)
+
+---
+
+## 프롬프트
+
+("날짜 규칙 변경을 이대로 받아들일까요?"에 대한 답) 받아들이기
+
+### 결과
+
+4-1의 날짜 규칙 두 가지(한 글자 요일은 후보, 같은 요일이면 다음 주)를 파트 4가 받아들이기로 확정했다. `guideline.md`에 확정 날짜를 적었다. 코드와 `examples.py`는 이미 같은 규칙이라 고치지 않았다.
+"기존 일정을 바꾼 대화"의 정답 규칙과 날짜 계산기 수정(`0a0effb`)을 v4에 언제 반영할지는 이 결정에 들어 있지 않다. 파트 1과 따로 확인한다.
+
+### 변경 사항
+
+- `eval/schedule/guideline.md` (확정 날짜 한 줄)
