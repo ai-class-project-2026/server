@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 import secrets
 
@@ -9,7 +8,7 @@ from sqlalchemy.dialects.sqlite import insert
 from app.auth import CurrentUser
 from app.db.models import Channel, Member, Role, User, Workspace
 from app.deps import Session, require_member
-from app.realtime import hub
+from app.realtime import broadcast_workspace as _broadcast
 from app.schemas import (
     InvitePreview,
     MemberOut,
@@ -116,11 +115,3 @@ async def join_by_invite(code: str, user: CurrentUser, session: Session):
         joined = MemberOut(user_id=user.id, name=user.name, role=Role.member).model_dump(mode="json")
         await _broadcast(session, ws.id, "member_joined", joined)
     return ws
-
-
-async def _broadcast(session: Session, workspace_id: int, type_: str, data) -> None:
-    """이 워크스페이스의 모든 채널 소켓에 알린다 (어느 채널 화면을 보고 있든 받게)."""
-    channel_ids = await session.scalars(
-        select(Channel.id).where(Channel.workspace_id == workspace_id)
-    )
-    await asyncio.gather(*(hub.broadcast(cid, type_, data) for cid in channel_ids))

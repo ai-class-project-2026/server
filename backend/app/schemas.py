@@ -1,7 +1,7 @@
 import datetime as dt
 import re
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel as _BaseModel
 from pydantic import ConfigDict, EmailStr, Field, StringConstraints, model_validator
@@ -288,6 +288,9 @@ class SuggestionOut(BaseModel):
 class SuggestionActionIn(BaseModel):
     action: SuggestionAction
     event: EventIn | None = None  # required for "edited": the user's corrected version
+    # "edited"에서 사용자가 고친 칸. 주면 이 칸만 event 값으로 바꾸고 나머지는 카드의 지금 값을 쓴다
+    # (수정 폼을 연 사이 다른 팀원이 말로 고친 칸을 옛 값으로 덮어쓰지 않게). 없으면 event 전체를 쓴다
+    changed: list[Literal["title", "date", "start", "time_text", "location", "attendees", "absent", "note"]] | None = None
 
 
 class SuggestionResult(BaseModel):

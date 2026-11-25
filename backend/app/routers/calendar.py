@@ -21,7 +21,7 @@ from app.db.models import (
     User,
 )
 from app.deps import Session, get_owned, require_member
-from app.realtime import hub
+from app.realtime import broadcast_workspace, hub
 from app.schedule import instruction
 from app.schedule.pipeline import suggestion_out
 from app.schemas import (
@@ -48,6 +48,11 @@ log = logging.getLogger(__name__)
 def _apply(obj, changes: dict) -> None:
     for k, v in changes.items():
         setattr(obj, k, v)
+
+
+async def _events_changed(session, workspace_id: int, event_id: int) -> None:
+    """일정이 생기거나 바뀌거나 지워지면 워크스페이스의 모든 채널에 알린다. 받은 화면은 일정 목록을 다시 받는다."""
+    await broadcast_workspace(session, workspace_id, "events_changed", {"event_id": event_id})
 
 
 def _reject_null(changes: dict, required: tuple[str, ...]) -> None:
@@ -90,6 +95,7 @@ async def create_event(
     ev = Event(workspace_id=workspace_id, **body.model_dump())
     session.add(ev)
     await session.commit()
+    await _events_changed(session, workspace_id, ev.id)
     return ev
 
 
@@ -102,13 +108,17 @@ async def update_event(
     _reject_null(changes, ("title", "date", "status", "attendees", "absent"))
     _apply(ev, changes)  # explicit null clears start/location
     await session.commit()
+    await _events_changed(session, ev.workspace_id, ev.id)
     return ev
 
 
 @router.delete("/events/{event_id}", status_code=204)
 async def delete_event(event_id: int, user: CurrentUser, session: Session):
-    await session.delete(await get_owned(session, Event, event_id, user))
+    ev = await get_owned(session, Event, event_id, user)
+    workspace_id = ev.workspace_id
+    await session.delete(ev)
     await session.commit()
+    await _events_changed(session, workspace_id, event_id)
 
 
 # --- AI suggestion cards ---
@@ -162,11 +172,9 @@ async def act_on_suggestion(
         p = SuggestionPayload.model_validate(s.payload_json)
     except ValidationError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid card")
-    fields = (
-        body.event.model_dump()
-        if body.event
-        else p.event.model_dump(include=set(EventIn.model_fields))
-    )
+    fields = p.event.model_dump(include=set(EventIn.model_fields))
+    if body.event:
+        fields |= body.event.model_dump(include=None if body.changed is None else set(body.changed))
     ev = None
     if body.action is not SuggestionAction.ignored:
         if p.kind is SuggestionKind.add:
@@ -231,6 +239,8 @@ async def act_on_suggestion(
         except ValidationError:  # 망가진 카드는 목록에도 안 나오니 알릴 것도 없다
             continue
         await hub.broadcast(m.channel_id, "suggestion_resolved", r.model_dump(mode="json"))
+    if ev is not None:  # 카드를 받아 일정이 생기거나 바뀌었다: 다른 채널을 보는 팀원 화면도 알게
+        await _events_changed(session, ev.workspace_id, ev.id)
     return out
 
 

@@ -96,3 +96,11 @@ class Hub:
 
 
 hub = Hub()
+
+
+async def broadcast_workspace(session, workspace_id: int, type_: str, data) -> None:
+    """이 워크스페이스의 모든 채널 소켓에 알린다 (어느 채널 화면을 보고 있든 받게)."""
+    channel_ids = await session.scalars(
+        select(Channel.id).where(Channel.workspace_id == workspace_id)
+    )
+    await asyncio.gather(*(hub.broadcast(cid, type_, data) for cid in channel_ids))
