@@ -293,3 +293,30 @@ class SuggestionActionIn(BaseModel):
 class SuggestionResult(BaseModel):
     suggestion: SuggestionOut
     event: EventOut | None
+
+
+# --- 말로 고치기/추가하기 (기획서 6.1) ---
+
+
+class InstructionIn(BaseModel):
+    # 한 줄 지시. 제목(100자)·장소(200자)가 이 글에서 나오므로 장소 제한과 같은 200자
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class SuggestionRevised(BaseModel):
+    suggestion: SuggestionOut
+    changed: list[str]  # 바뀐 칸 이름 (title, date, start, time_text, location, attendees, absent, note)
+
+
+class EventDraft(BaseModel):
+    """일정 추가 창에 채울 초안 (저장하지 않는다). 읽어 낸 칸만 값이 있고, 그 칸 이름이 changed에 있다."""
+
+    title: str | None = None
+    date: dt.date | None = None
+    start: dt.time | None = None
+    time_text: str | None = None
+    location: str | None = None
+    attendees: list[str] = []
+    absent: list[str] = []
+    note: str | None = None
+    changed: list[str]

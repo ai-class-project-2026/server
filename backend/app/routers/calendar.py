@@ -1,6 +1,8 @@
+import asyncio
 import datetime as dt
-
 import logging
+import weakref
+from contextlib import contextmanager
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
@@ -16,19 +18,24 @@ from app.db.models import (
     Member,
     SuggestionAction,
     Todo,
+    User,
 )
 from app.deps import Session, get_owned, require_member
 from app.realtime import hub
+from app.schedule import instruction
 from app.schedule.pipeline import suggestion_out
 from app.schemas import (
+    EventDraft,
     EventIn,
     EventOut,
     EventUpdate,
+    InstructionIn,
     SuggestionActionIn,
     SuggestionKind,
     SuggestionOut,
     SuggestionPayload,
     SuggestionResult,
+    SuggestionRevised,
     TodoIn,
     TodoOut,
     TodoUpdate,
@@ -148,6 +155,8 @@ async def act_on_suggestion(
     )
     if claimed.rowcount != 1:
         raise HTTPException(status.HTTP_409_CONFLICT, "Already handled")
+    # 위에서 읽은 뒤 누가 카드를 말로 고쳤을 수 있다: 차지한 뒤(쓰기 잠금 안)의 최신 내용으로 처리한다
+    await session.refresh(s)
 
     try:
         p = SuggestionPayload.model_validate(s.payload_json)
@@ -223,6 +232,104 @@ async def act_on_suggestion(
             continue
         await hub.broadcast(m.channel_id, "suggestion_resolved", r.model_dump(mode="json"))
     return out
+
+
+# --- 말로 고치기/추가하기 (기획서 6.1) ---
+
+# 한 사람은 한 번에 하나만: 모델 호출이 30초까지 걸려서, 연타나 반복 호출이 모델 서버를 붙잡지 않게 한다.
+# 같은 카드는 한 번에 하나씩 고친다: 둘이 동시에 고치면 뒤 사람 지시가 앞 사람이 고친 내용 위에 적용된다.
+# ponytail: 프로세스 안 잠금이라 서버 워커 1개 기준 (realtime.Hub, pipeline._locks와 같은 전제)
+_busy: set[int] = set()
+_card_locks: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
+
+
+@contextmanager
+def _one_at_a_time(user_id: int):
+    if user_id in _busy:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Instruction already running")
+    _busy.add(user_id)
+    try:
+        yield
+    finally:
+        _busy.discard(user_id)
+
+
+def _instruction_error(e: Exception, kind: SuggestionKind | None = None) -> HTTPException:
+    if isinstance(e, instruction.WantsCancel):
+        detail = "Cancel the event in the calendar" if kind is SuggestionKind.update else "Ignore the card to drop it"
+    elif isinstance(e, instruction.Invalid):
+        detail = "Date is in the past" if "before the reference" in str(e) else "Invalid event"
+    else:
+        detail = "Instruction not understood"
+    return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail)
+
+
+async def _member_names(session, workspace_id: int) -> list[str]:
+    return list(await session.scalars(select(User.name).join(Member).where(Member.workspace_id == workspace_id)))
+
+
+@router.post("/suggestions/{suggestion_id}/revise", response_model=SuggestionRevised)
+async def revise_suggestion(
+    suggestion_id: int, body: InstructionIn, user: CurrentUser, session: Session
+):
+    """대기 중인 새 일정/일정 변경 카드를 한 줄 지시로 고친다. 같은 카드가 모든 팀원 화면에서 바뀐다(푸시 "suggestion").
+    일정은 저장하지 않는다: 고친 뒤에도 팀원이 평소 버튼을 눌러야 한다."""
+    s = await get_owned(session, AISuggestion, suggestion_id, user)
+    ch = await session.get(Channel, s.channel_id)
+    speaker, members = user.name, await _member_names(session, ch.workspace_id)
+    with _one_at_a_time(user.id):
+        lock = _card_locks.setdefault(suggestion_id, asyncio.Lock())
+        async with lock:
+            await session.refresh(s)  # 기다리는 사이 다른 사람이 고쳤거나 답했을 수 있다
+            if s.action is not None:
+                raise HTTPException(status.HTTP_409_CONFLICT, "Already handled")
+            try:
+                p = SuggestionPayload.model_validate(s.payload_json)
+            except ValidationError:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid card")
+            if p.kind is SuggestionKind.cancel:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Cancel cards cannot be revised")
+            try:
+                ev, changed = await instruction.revise(p.event, body.text, speaker, members, dt.datetime.now(dt.UTC))
+            except (instruction.NotUnderstood, instruction.WantsCancel, instruction.Invalid) as e:
+                raise _instruction_error(e, p.kind)
+            # AI가 처음 낸 일정은 original_event로 남긴다 (버튼 결과와 함께 재학습 데이터, 기획서 5.2)
+            new = {
+                **s.payload_json,
+                "event": ev.model_dump(mode="json"),
+                "original_event": s.payload_json.get("original_event", p.event.model_dump(mode="json")),
+            }
+            # 답한 카드는 되살리지 않는다: 아직 아무도 답하지 않았을 때만 바꾼다 (act_on_suggestion의 차지와 같은 조건)
+            done = await session.execute(
+                update(AISuggestion)
+                .where(AISuggestion.id == suggestion_id, AISuggestion.action.is_(None))
+                .values(payload_json=new)
+                .execution_options(synchronize_session=False)
+            )
+            if done.rowcount != 1:
+                await session.rollback()
+                raise HTTPException(status.HTTP_409_CONFLICT, "Already handled")
+            await session.commit()
+            await session.refresh(s)
+            out = suggestion_out(s)
+            # 잠금 안에서 보낸다: 연달아 고친 두 결과가 뒤바뀐 순서로 도착하지 않게
+            await hub.broadcast(s.channel_id, "suggestion", out.model_dump(mode="json"))
+    return SuggestionRevised(suggestion=out, changed=changed)
+
+
+@router.post("/workspaces/{workspace_id}/events/parse", response_model=EventDraft)
+async def parse_event(
+    workspace_id: int, body: InstructionIn, user: CurrentUser, session: Session
+):
+    """일정 추가 창의 한 줄("내일 저녁 7시 도서관에서 팀 회의") → 칸을 채울 초안. 저장하지 않는다."""
+    await require_member(session, workspace_id, user)
+    speaker, members = user.name, await _member_names(session, workspace_id)
+    with _one_at_a_time(user.id):
+        try:
+            fields = await instruction.draft(body.text, speaker, members, dt.datetime.now(dt.UTC))
+        except (instruction.NotUnderstood, instruction.Invalid) as e:
+            raise _instruction_error(e)
+    return EventDraft(**fields, changed=list(fields))
 
 
 # --- todos ---
