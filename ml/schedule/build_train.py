@@ -5,6 +5,11 @@
 v2 comes from ml/schedule/synth/generate.py. v1 was generated earlier and has known
 flaws, so only chats that add something are kept: unfinished proposals, chats with
 no plan, and confirmed plans that don't end by announcing "확정".
+
+Later sets go in after v2 and v3, in the order given, each tagged with its own source:
+
+    uv run python ml/schedule/build_train.py --v3 data/schedule/synth/train_v3.jsonl \
+        --extra v4=data/schedule/synth/train_v4.jsonl
 """
 
 import argparse
@@ -65,6 +70,12 @@ def held_out_texts() -> set[str]:
     return texts
 
 
+def extra_file(arg: str) -> tuple[str, Path]:
+    """"v4=data/x.jsonl" → ("v4", path); a bare path is named after its file ("x")."""
+    name, sep, path = arg.partition("=")
+    return (name, Path(path)) if sep else (Path(arg).stem, Path(arg))
+
+
 def useful_v1(r: dict) -> bool:
     if r["type"] in ("proposal_only", "not_schedule"):
         return True
@@ -112,18 +123,21 @@ def main():
     ap.add_argument("--v1", type=Path, default=SYNTH / "train_v1.jsonl")
     ap.add_argument("--v2", type=Path, default=SYNTH / "train_v2.jsonl")
     ap.add_argument("--v3", type=Path, help="short chats made with generate.py --short")
+    ap.add_argument("--extra", action="append", default=[], metavar="[NAME=]FILE",
+                    help="more chats (e.g. offline.py output), repeatable; source = NAME or the file name")  # fmt: skip
     ap.add_argument("--out", type=Path, default=SYNTH / "train.jsonl")
     args = ap.parse_args()
 
     rng = random.Random(0)
     v2 = [r | {"source": "v2"} for r in read_jsonl(args.v2)]
     v3 = [r | {"source": "v3"} for r in read_jsonl(args.v3)] if args.v3 else []
+    extra = [r | {"source": name} for name, path in map(extra_file, args.extra) for r in read_jsonl(path)]
     v1 = [repair_v1(r, rng) for r in read_jsonl(args.v1) if useful_v1(r)]
     rng.shuffle(v1)
     v1 = v1[: int(len(v2) * V1_SHARE)]
     held_out = held_out_texts()
     seen, out, dropped = set(), [], collections.Counter()
-    for r in v2 + v3 + v1:
+    for r in v2 + v3 + extra + v1:
         chat = tuple(re.sub(r"\s", "", t["text"]) for t in r["dialogue"])
         if chat in seen:
             dropped["duplicate"] += 1
@@ -147,6 +161,7 @@ def demo():
     assert natural_time("20시 줌") == "저녁 8시 줌"
     assert natural_time("밤 21시") == "밤 9시"
     assert natural_time("10시간 12시") == "10시간 12시"
+    assert extra_file("v4=a/b.jsonl") == ("v4", Path("a/b.jsonl")) and extra_file("a/v5.jsonl") == ("v5", Path("a/v5.jsonl"))
     ev = {"title": "회의", "date": "2026-10-16", "start": "19:00", "location": "카페", "status": "proposed",
           "attendees": [], "absent": []}  # fmt: skip
     turn = {"speaker": "민준", "text": "금 19시 ㄱ?", "ts": "2026-10-14T21:00:00+09:00"}
