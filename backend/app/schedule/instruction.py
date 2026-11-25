@@ -55,6 +55,17 @@ def _model_event(events: list[ScheduleEvent]) -> ScheduleEvent | None:
     return left[0] if left[0].status is EventStatus.confirmed else None
 
 
+async def _ask(req: ScheduleRequest) -> ScheduleEvent | None:
+    """_model_event(모델 답). tracker.track은 지난 날짜 일정을 버려서, 그대로면 "모델이 지난 날짜로 답함"이
+    "아무 답도 안 함"과 같아져 규칙이 대신 답한다 ("지난주 금요일로" → 이번 주 금요일). 보이는 답으로 정할 수 없을 때만
+    버린 지난 날짜 일정을 넣어 본다: 그것이 결과 일정이면 _build가 지난 날짜(Invalid)로 돌려보낸다."""
+    dropped: list = []
+    events = await tracker.track(req, dropped)
+    today = to_kst(req.ref_datetime).date()
+    past = [e for e, _ in dropped if e.date < today]
+    return _model_event(events) or (_model_event(events + past) if past else None)
+
+
 def _from_model(m: ScheduleEvent, ev: ScheduleEvent) -> dict:
     """모델이 낸 일정에서 카드와 달라진 칸만. 비워 둔 칸은 "지워라"가 아니라 "새 정보 없음"이다 (reconcile._merge와 같은 규칙)."""
     ch = {k: getattr(m, k) for k in ("title", "date", "location", "note") if getattr(m, k) and getattr(m, k) != getattr(ev, k)}
@@ -89,7 +100,7 @@ def _build(base: dict, changes: dict, req: ScheduleRequest) -> ScheduleEvent:
 async def revise(ev: ScheduleEvent, text: str, speaker: str, members: list[str], now: dt.datetime) -> tuple[ScheduleEvent, list[str]]:
     """카드의 일정 ev에 지시를 적용한다. (고친 일정, 바뀐 칸 이름들)."""
     req = _request(text, speaker, members, now, [ev])
-    m = _model_event(await tracker.track(req))
+    m = await _ask(req)
     changes = _from_model(m, ev) if m else {}
     if not changes:
         r = rules(text, members, to_kst(now).date(), ev)
@@ -110,7 +121,7 @@ async def draft(text: str, speaker: str, members: list[str], now: dt.datetime) -
     """일정 추가 창에 채울 칸만 담은 dict (저장하지 않는다). 못 읽은 칸은 넣지 않는다."""
     req = _request(text, speaker, members, now, [])
     try:
-        m = _model_event(await tracker.track(req))
+        m = await _ask(req)
     except WantsCancel:
         m = None
     if m:
@@ -141,6 +152,10 @@ _ONLINE = re.compile(
     r"(?<![가-힣A-Za-z])(?P<v>디코|디스코드|줌|zoom|Zoom|구글밋|구글미트|게더|게더타운|카톡|보이스톡|전화|온라인)"
     r"(?:으로|로|에서|에)?(?![가-힣A-Za-z])(?!\s*(?:말고|대신))"
 )
+# 분명히 지난 날을 가리키는 말. dateparse_ko는 요일을 앞으로만 읽어서 "지난주 금요일"의 금요일을 이번 주 금요일로 준다
+_PAST = re.compile(r"(?<![가-힣])(?:어제|엊그제|그저께|그제|(?:지난|저번)\s*주\s*말|(?:지난|저번)\s*(?:주\s*)?[월화수목금토일](?:요일|욜))")
+# 지난 날 말이 일정 날짜일 때 뒤에 오는 것: "어제로", "어제 저녁 7시". "어제 말한 거", "어제 회의록"은 날짜가 아니다
+_PAST_IS_DATE = re.compile(r"\s*(?:(?:오전|오후|아침|저녁|밤|새벽|낮)\s*)?(?:으로|로|\d{1,2}\s*(?:시|:))")
 _CANCEL = re.compile(r"취소|없던\s*(?:걸로|일로)|안\s*하기로|하지\s*말자|파토|엎자|엎어")
 # 이름 뒤에 붙는 말: 조사, 그리고 "서연 오늘 못 와"의 "오늘" (이 날짜 말은 일정 날짜가 아니다)
 _SUFFIX = r"(?:이)?(?:는|은|가|도|씨|님|이)?\s*(?:(?:오늘|내일|이번|그날)(?:은|는|에)?\s*)?"
@@ -226,7 +241,12 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
             or re.match(r"\s*(?:요일|욜)?\s*(?:으로|로|에|날|(?:오전|오후|아침|저녁|밤|새벽|낮)?\s*\d{1,2}\s*시)", text[x.end :])
         )
     ]
-    if dates:
+    past = [m for m in _PAST.finditer(text) if not inside(m.start(), m.end())]
+    dates = [x for x in dates if not any(p.start() <= x.start < p.end() for p in past)]  # 지난주 금요일 ≠ 이번 주 금요일
+    if past and _PAST_IS_DATE.match(text, past[-1].end()) and (not dates or past[-1].start() > dates[-1].start):
+        out["date"] = today - dt.timedelta(days=1)  # 지난 날이기만 하면 된다: _build가 지난 날짜(Invalid)로 돌려보낸다
+        used.append(past[-1].span())
+    elif dates:
         out["date"] = dates[-1].date
     times = [(x.start, x.end, x) for x in mentions if x.time or x.time_text]
     hhmm = [h for h in _HHMM.finditer(text) if not inside(h.start(), h.end())]
@@ -431,4 +451,43 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
     assert drf("회의 잡아줘", "지안", ans({**add, "title": "회의", "date": "2026-12-03", "weekday": "목"}, {**add, "title": "회의"} | {"date": "2026-12-04"})) == {
         "title": "회의"}  # 추가인데 둘 → 규칙  # fmt: skip
     assert drf("회의 잡아줘", "지안", ans({**add, "title": "회의", "date": "2026-12-03", "weekday": "목", "status": "cancelled"})) == {"title": "회의"}
+
+    # 지난 날짜: tracker.track은 지난 날짜 일정을 버린다. 그래도 "아무 답 없음"이 아니라 지난 날짜(422 Date is in the past)여야 한다
+    now = dt.datetime(2026, 12, 10, 3, 0, tzinfo=dt.UTC)  # 2026-12-10 12:00 KST (목)
+    today = to_kst(now).date()
+    C = {**REF, "date": "2026-12-12", "weekday": "토"}
+    card, OLD = ScheduleEvent.model_validate(C), {**C, "status": "rejected", "attendees": []}
+
+    def past(f):
+        try:
+            f()
+        except Invalid as e:
+            assert "before the reference" in str(e), e  # 라우터가 "Date is in the past"로 보내는 조건
+            return
+        raise AssertionError("expected a past-date Invalid")
+
+    for on in (True, False):  # 모델이 지난 날짜로 답함 / 모델 꺼짐 → 규칙
+        settings.schedule_llm_url = "http://model.invalid" if on else ""
+        past(lambda: rev("어제로 바꿔줘", "하람", ans(OLD, {**C, "date": "2026-12-09", "weekday": "수"}), card))
+        past(lambda: rev("지난주 금요일로 바꿔줘", "하람", ans(OLD, {**C, "date": "2026-12-04", "weekday": "금"}), card))
+        past(lambda: drf("어제 저녁 7시 회의", "하람", ans({**add, "title": "회의", "date": "2026-12-09", "weekday": "수", "start": t(19)})))
+        # 그대로여야 하는 것: 앞날로 바꾸기, 날짜가 아닌 지난 말
+        same(*rev("금요일로 바꿔줘", "하람", ans(OLD, {**C, "date": "2026-12-11", "weekday": "금"}), card), {"date": "2026-12-11"}, ["date"])
+        same(*rev("지난주에 말한 회의 금요일 6시로", "하람", ans(OLD, {**C, "date": "2026-12-11", "weekday": "금", "start": t(18)}), card),
+             {"date": "2026-12-11", "start": t(18)}, ["date", "start"])  # fmt: skip
+        same(*rev("어제 말한 거 9시로 바꿔줘", "하람", ans(OLD, {**C, "start": t(21)}), card), {"start": t(21)} if on else bare8 | {"time_text": "9시"},
+             ["start"] if on else ["start", "time_text"])  # fmt: skip
+        got = drf("어제 회의록 정리 내일 3시에 하자", "하람", ans({**add, "title": "회의록 정리", "date": "2026-12-11", "start": t(15)}))
+        assert got == {"title": "회의록 정리" if on else "어제 회의록 정리", "date": dt.date(2026, 12, 11), "start": dt.time(15)} | (
+            {"attendees": P} if on else {}), got  # fmt: skip
+    settings.schedule_llm_url = "http://model.invalid"
+    past(lambda: rev("어제로 바꿔줘", "하람", ans(), card))  # 모델이 [] → 규칙도 지난 날짜로 읽는다
+    same(*rev("8시로 바꿔줘", "하람", ans({**C, "start": t(20)}, {**C, "date": "2026-12-09", "start": t(20)}), card), {"start": t(20)},
+         ["start"])  # 보이는 답이 하나면 지금처럼 그것을 쓴다  # fmt: skip
+    tracker._transport = model(ans({**C, "date": "2026-12-09"}), "하람")
+    assert asyncio.run(tracker.track(_request("x", "하람", P, now, []))) == []  # dropped 없이 부르면(파이프라인) 지금처럼 버리기만
+    assert rules("지난주 금요일에 정한 회의 8시로", P, today, card) == {"time_text": "8시"}  # 이번 주 금요일로 옮기지 않는다
+    assert rules("지난 주말로 바꿔줘", P, today, card) == {"date": today - dt.timedelta(days=1)}
+    assert rules("그제야 봤네 8시로", P, today, card) == {"time_text": "8시"}
+    assert rules("지난주 금요일 회의 다음 주 화요일로 옮겨줘", P, today, card) == {"date": dt.date(2026, 12, 15)}
     print("ok")

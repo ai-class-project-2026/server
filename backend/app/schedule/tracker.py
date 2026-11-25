@@ -16,8 +16,9 @@ log = logging.getLogger(__name__)
 _transport = None  # tests swap in httpx.MockTransport
 
 
-async def track(req: ScheduleRequest) -> list[ScheduleEvent]:
-    """[] on any failure: a missed card is fine, a crashed chat is not."""
+async def track(req: ScheduleRequest, dropped: list | None = None) -> list[ScheduleEvent]:
+    """[] on any failure: a missed card is fine, a crashed chat is not.
+    dropped: 리스트를 넘기면 _problem으로 버린 일정을 (일정, 사유)로 담아 준다 (말로 고치기가 "지난 날짜로 답함"을 알아보려고)."""
     if not settings.schedule_llm_url:
         return []
     try:
@@ -52,6 +53,8 @@ async def track(req: ScheduleRequest) -> list[ScheduleEvent]:
             continue
         if problem := _problem(ev, req):
             log.warning("dropping event %r: %s", ev.title, problem)
+            if dropped is not None:
+                dropped.append((ev, problem))
             continue
         out.append(_clean(ev, req))
     return out
@@ -113,4 +116,14 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
         got = (ev.start and ev.start.strftime("%H:%M"), ev.time_text)
         assert got == want, (raw, got, want)
     assert _tidy({"start": "8시", "time_text": "저녁"})["time_text"] == "저녁" and _tidy([1]) == [1] and _tidy(None) is None
+    import datetime as dt
+
+    old, new = ({"title": "회의", "date": d, "status": "confirmed"} for d in ("2026-11-01", "2026-11-30"))
+    answer = json.dumps({"events": [old, new]})
+    _transport = httpx.MockTransport(lambda r: httpx.Response(200, json={"choices": [{"message": {"content": answer}}]}))
+    settings.schedule_llm_url = "http://model.invalid"
+    req = ScheduleRequest.model_construct(ref_datetime=dt.datetime(2026, 11, 26, 12), participants=[], dialogue=[], existing_events=[])
+    got, dropped = asyncio.run(track(req, out := [])), out
+    assert [e.date for e in got] == [dt.date(2026, 11, 30)] == [e.date for e in asyncio.run(track(req))], got  # 넘기지 않으면 지금과 같다
+    assert [(e.date, why) for e, why in dropped] == [(dt.date(2026, 11, 1), "date is before the reference date")], dropped
     print("ok")
