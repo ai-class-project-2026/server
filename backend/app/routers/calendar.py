@@ -181,6 +181,32 @@ async def act_on_suggestion(
             else:
                 ev.status = EventStatus.cancelled
     s.action = body.action  # 메모리의 값도 맞춰 둔다 (DB에는 위에서 이미 반영)
+    # 같은 일정을 가리키던 다른 대기 카드 중 의미가 없어진 것도 같이 닫는다 (지우지 않고 "무시"로 남긴다).
+    #  취소가 반영되면: 그 일정의 바꾸기·취소 카드 전부 (더는 확정된 일정이 아니다)
+    #  바꾸기가 반영되면: 그 일정의 다른 바꾸기 카드 (예전 일정 값으로 채운 카드라, 받으면 방금 바꾼 내용을 되돌린다)
+    #  바꾸기 뒤의 취소 카드는 그대로 둔다 (일정이 아직 있으니 여전히 고를 수 있다)
+    # 이미 답한 카드는 action IS NULL 조건에 걸리지 않아 바뀌지 않는다. 위의 차지(UPDATE)와 같은 트랜잭션이다.
+    moot = []
+    if ev is not None and p.kind is not SuggestionKind.add:
+        kinds = [SuggestionKind.update]
+        if p.kind is SuggestionKind.cancel:
+            kinds.append(SuggestionKind.cancel)
+        moot = list(
+            await session.scalars(
+                update(AISuggestion)
+                .where(
+                    AISuggestion.action.is_(None),
+                    AISuggestion.channel_id.in_(
+                        select(Channel.id).where(Channel.workspace_id == ev.workspace_id)
+                    ),
+                    AISuggestion.payload_json["event_id"].as_integer() == ev.id,
+                    AISuggestion.payload_json["kind"].as_string().in_(kinds),
+                )
+                .values(action=SuggestionAction.ignored)
+                .returning(AISuggestion)
+                .execution_options(synchronize_session=False)
+            )
+        )
     await session.commit()
 
     out = SuggestionResult(
@@ -190,6 +216,12 @@ async def act_on_suggestion(
     await hub.broadcast(
         s.channel_id, "suggestion_resolved", out.model_dump(mode="json")
     )
+    for m in moot:  # 다른 팀원 화면에서도 답한 카드처럼 사라지게 같은 알림을 보낸다
+        try:
+            r = SuggestionResult(suggestion=suggestion_out(m), event=out.event)
+        except ValidationError:  # 망가진 카드는 목록에도 안 나오니 알릴 것도 없다
+            continue
+        await hub.broadcast(m.channel_id, "suggestion_resolved", r.model_dump(mode="json"))
     return out
 
 

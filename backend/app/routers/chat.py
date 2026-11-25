@@ -177,7 +177,8 @@ async def _ws_auth(websocket: WebSocket, channel_id: int) -> tuple[int, float] |
 @router.websocket("/ws/channels/{channel_id}")
 async def channel_socket(websocket: WebSocket, channel_id: int):
     """Receive-only: server pushes {"type": "message" | "suggestion" |
-    "suggestion_resolved" | "member_joined", "data": ...}. Send messages with POST.
+    "suggestion_resolved" | "member_joined" |
+    "workspace_updated", "data": ...}. Send messages with POST.
     URL에 토큰을 넣으면 접속 로그에 남아서, 연결한 뒤 첫 프레임으로 인증한다:
     client → {"type": "auth", "token": "<JWT>"} (5초 안에), server → {"type": "ready"}.
     실패하면 연결을 받은 뒤 1008로 닫는다(네트워크 오류와 구분하려고). 토큰이 만료되면 1008로 닫는다."""
