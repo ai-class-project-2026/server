@@ -12,6 +12,11 @@ prompt (judge_prompt) and agreement test (agrees) as generate.py.
     judges answer each judge_K.jsonl in GEN/judge_K.out.jsonl: {id, events: [...]}
     python ml/schedule/synth/offline.py finish --dir GEN --out GEN/private/train_v4.jsonl
 
+judge-prep runs generate.check() with one relaxation (check() below: a gold date that only
+the calendar has, for a title the chat says) and three more filters: missing cues, a chosen
+constraint time not said on its own (missing_apart), and clock times the scenario never had.
+--kind focus2 makes the second focus batch (scenarios.make_focus2).
+
 Writers and judges must never read GEN/private/. Ids are random, so they say nothing about
 the scenario, and judge ids are not derived from writer ids (a judge can't find the
 writer's prompt, which describes the intended outcome). Each finished judge id is logged in
@@ -33,7 +38,8 @@ import scenarios  # noqa: E402
 from app.schemas import ScheduleEvent  # noqa: E402
 from dateparse_ko import parse  # noqa: E402
 
-MAKERS = {"focus": scenarios.make_focus, "short": scenarios.make_short, "make": scenarios.make}
+MAKERS = {"focus": scenarios.make_focus, "focus2": scenarios.make_focus2, "short": scenarios.make_short,
+          "make": scenarios.make}  # fmt: skip
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -82,6 +88,40 @@ def _answers(folder: Path, pattern: str) -> tuple[list[dict], collections.Counte
                 continue
             rows.append(row)
     return rows, bad
+
+
+def check(sc: dict, turns) -> str | None:
+    """generate.check(), except that a gold date nobody says is accepted when the calendar has
+    that event (same date and title) and the chat says the title: "발표 연습 3시로 늦추자" with
+    the date only on the calendar. Not when the chat names some other date instead."""
+    reason = generate.check(sc, turns)
+    if reason != "date not resolved":  # check() tests the date last, so everything else passed
+        return reason
+    ref = dt.date.fromisoformat(sc["ref_date"])
+    said = "".join(t.text for t in turns).replace(" ", "")
+    mentions = [m for t in turns for m in parse(t.text, ref) if m.date]
+    found = {m.date.isoformat() for m in mentions}
+    calendar = {(e["date"], e["title"]) for e in sc["existing_events"]}
+    for e in sc["events"]:
+        if e["date"] in found:
+            continue
+        if (e["date"], e["title"]) not in calendar or e["title"].replace(" ", "") not in said:
+            return reason
+    known = {e["date"] for e in sc["events"] + sc["existing_events"]}
+    if any(m.date.isoformat() not in known for m in mentions if not m.tentative):  # "목?" may be 목 아파
+        return reason
+    return None
+
+
+def missing_apart(sc: dict, turns) -> bool:
+    """`apart` words (a chosen constraint time) must also be said outside the cue phrases:
+    in "6시부터 됨" / "그럼 6시" the second 6시 is the proposal, and check() alone would be
+    satisfied by the first."""
+    said = "".join(t.text for t in turns).replace(" ", "")
+    for alts in sc.get("cues", []):
+        for a in alts:
+            said = said.replace(a.replace(" ", ""), "")
+    return any(w.replace(" ", "") not in said for w in sc.get("apart", []))
 
 
 def missing_cue(sc: dict, turns) -> bool:
@@ -159,8 +199,9 @@ def judge_prep(args) -> None:
             reason = "not the turns shape"
         else:
             reason = (
-                generate.check(sc, turns)
+                check(sc, turns)
                 or ("missing cue" if missing_cue(sc, turns) else None)
+                or ("constraint time not proposed on its own" if missing_apart(sc, turns) else None)
                 or ("unscripted time" if unscripted_time(sc, turns) else None)
             )
         if reason:
@@ -320,6 +361,46 @@ def demo() -> None:
         assert len(read_jsonl(out)) == len(kept) and "already finished" in again, again
         print(f"offline ok: {len(scs)} scenarios, {len(cands)} pass check(), {len(kept)} kept"
               f"{', moved-time gate tested' if moved else ''}")  # fmt: skip
+
+    # make_focus2(): the calendar date for a title-only change, and a chosen constraint time
+    import copy
+
+    rng, picked = random.Random(5), {}
+    while len(picked) < 4:
+        sc = scenarios.make_focus2(rng)
+        key = sc.get("refer") or sc["variant"]
+        if key == "chosen":  # is the chosen time written inside the constraint phrase ("5시" in "5시부터 됨")?
+            key = "chosen_inside" if sc["apart"][0].replace(" ", "") in sc["cues"][0][0].replace(" ", "") else key
+        if key in ("title", "title_weekday", "chosen", "chosen_inside") and key not in picked:
+            picked[key] = sc
+
+    def turns_of(sc, extra=""):
+        rows = chat(sc)
+        rows[-1]["text"] += extra
+        return [generate.Turn(**r) for r in rows]
+
+    t = picked["title"]
+    ok = turns_of(t)
+    assert generate.check(t, ok) == "date not resolved" and check(t, ok) is None  # only the calendar has the date
+    away = dt.date.fromisoformat(t["ref_date"]) + dt.timedelta(days=20)  # past every gold and calendar date
+    assert check(t, turns_of(t, f" {away.month}/{away.day}")) == "date not resolved"  # names another date
+    other = copy.deepcopy(t)
+    for e in other["existing_events"]:
+        e["title"] = "다른 일정"
+    assert check(other, ok) == "date not resolved"  # the calendar has no event with that title
+    title = t["events"][0]["title"]
+    assert check(t, [generate.Turn(speaker=x.speaker, text=x.text.replace(title, "그거")) for x in ok]) == "missing expression"
+    w = picked["title_weekday"]
+    assert generate.check(w, turns_of(w)) is None and check(w, turns_of(w)) is None  # the weekday resolves itself
+    for key in ("chosen_inside", "chosen"):
+        c = picked[key]
+        assert check(c, turns_of(c)) is None and not missing_apart(c, turns_of(c))
+        cue_only = turns_of(c | {"must": [x for x in c["must"] if x not in c["apart"]]})  # time only in the cue
+        if key == "chosen_inside":  # check() is fooled by the cue; missing_apart is not
+            assert check(c, cue_only) is None and missing_apart(c, cue_only)
+        else:  # said differently in the cue ("20시부터" / "밤 8시"): check() already sees it is missing
+            assert check(c, cue_only) == "missing expression"
+    print("offline focus2 ok: calendar date for a title-only change, chosen constraint time said on its own")
 
 
 def main(argv=None) -> None:
