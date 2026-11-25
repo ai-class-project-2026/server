@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import secrets
 
@@ -8,6 +9,7 @@ from sqlalchemy.dialects.sqlite import insert
 from app.auth import CurrentUser
 from app.db.models import Channel, Member, Role, User, Workspace
 from app.deps import Session, require_member
+from app.realtime import hub
 from app.schemas import (
     InvitePreview,
     MemberOut,
@@ -100,10 +102,21 @@ async def join_by_invite(code: str, user: CurrentUser, session: Session):
     if ws is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invalid invite code")
     # 여러 탭이 동시에 들어와도 안 터지게: 이미 멤버면 그냥 넘어간다 (있으면 무시하는 INSERT).
-    await session.execute(
+    res = await session.execute(
         insert(Member)
         .values(workspace_id=ws.id, user_id=user.id, role=Role.member)
         .on_conflict_do_nothing()
     )
     await session.commit()
+    if res.rowcount:  # 새로 들어온 경우만: 이 워크스페이스의 모든 채널에 알려 멤버 목록을 새로 받게 한다
+        joined = MemberOut(user_id=user.id, name=user.name, role=Role.member).model_dump(mode="json")
+        channel_ids = await session.scalars(
+            select(Channel.id).where(Channel.workspace_id == ws.id)
+        )
+        await asyncio.gather(
+            *(
+                hub.broadcast(cid, "member_joined", joined)
+                for cid in channel_ids
+            )
+        )
     return ws
