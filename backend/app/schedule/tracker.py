@@ -59,8 +59,9 @@ async def track(req: ScheduleRequest) -> list[ScheduleEvent]:
 
 def _tidy(e):
     """검증에서 통째로 버려지거나 엉뚱한 시각이 되는 모양만 검증 전에 고친다. 시각을 지어내지는 않는다.
-    "8:00" → "08:00". 시:분으로 못 읽는 값("8시", "24:00", 숫자 8)은 원문을 time_text에 남기고
-    start를 비운다 (기획서 8.2). 숫자를 그대로 두면 8이 00:00:08이 된다."""
+    모델은 24시간 두 자리("20:00")로 쓴다. 한 자리 시("8:00")는 오전인지 오후인지 알 수 없어서 "8시"로 남기고,
+    시:분으로 못 읽는 값("8시", "24:00", 숫자 8)은 원문을 time_text에 남긴다. 둘 다 start는 비운다
+    (기획서 8.2, 8.5). 숫자를 그대로 두면 8이 00:00:08이 된다."""
     if not isinstance(e, dict):
         return e
     e = {**e, **{k: [] for k in ("attendees", "absent") if k in e and e[k] is None}}
@@ -70,7 +71,9 @@ def _tidy(e):
     text = str(raw).strip()
     if m := isinstance(raw, str) and re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2})?", text, re.ASCII):
         if int(m[1]) < 24 and int(m[2]) < 60:
-            return {**e, "start": f"{int(m[1]):02}:{m[2]}"}
+            if len(m[1]) == 2:
+                return {**e, "start": f"{m[1]}:{m[2]}"}
+            text = f"{m[1]}시" + (f" {int(m[2])}분" if int(m[2]) else "")
     said = None if text.lower() in ("", "null", "none") else text[:100]
     return {**e, "start": None, "time_text": e.get("time_text") or said}
 
@@ -101,7 +104,7 @@ def _problem(ev: ScheduleEvent, req: ScheduleRequest) -> str | None:
 
 if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.schedule.tracker
     for raw, want in [
-        ("8:00", ("08:00", None)), ("19:30:00", ("19:30", None)), ("0:05", ("00:05", None)), ("19:00", ("19:00", None)),
+        ("8:00", (None, "8시")), ("8:30:00", (None, "8시 30분")), ("19:30:00", ("19:30", None)), ("08:00", ("08:00", None)), ("19:00", ("19:00", None)),
         ("8시", (None, "8시")), ("24:00", (None, "24:00")), ("7:60", (None, "7:60")), (8, (None, "8")), ("", (None, None)),
         ("null", (None, None)), (None, (None, None)),
     ]:
