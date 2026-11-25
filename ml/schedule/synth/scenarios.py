@@ -75,6 +75,12 @@ def _say_time(rng: random.Random) -> tuple[dt.time | None, str | None, str]:
     h = rng.choices([10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
                     [2, 2, 2, 3, 4, 5, 6, 7, 7, 8, 6, 3])[0]  # fmt: skip
     m = rng.choice([0, 0, 0, 30])
+    return dt.time(h, m), None, _say_clock(h, m, rng)
+
+
+def _say_clock(h: int, m: int, rng: random.Random) -> str:
+    """How people say h:m (m is 0 or 30). Never a bare 8~11시."""
+    assert m in (0, 30) and 10 <= h <= 22, (h, m)
     half = " 반" if m else ""
     if h < 12:
         options = [f"오전 {h}시{half}", f"아침 {h}시{half}"]
@@ -88,7 +94,7 @@ def _say_time(rng: random.Random) -> tuple[dt.time | None, str | None, str]:
     else:
         n = h - 12
         options = [f"저녁 {n}시{half}", f"밤 {n}시{half}", f"오후 {n}시{half}", f"{h}시{half}"]
-    return dt.time(h, m), None, rng.choice(options)
+    return rng.choice(options)
 
 
 def _slot(ref, rng, used: set, title=None) -> dict:
@@ -450,3 +456,435 @@ def make(rng: random.Random) -> dict:
         "start_minute": rng.randint(8 * 60, 22 * 60),
         "gaps": [rng.randint(0, 4) for _ in range(40)],
     }
+
+
+# ── make_focus: chats aimed at the four mistakes the model still makes ─────────────
+# 1 hedge:        "ㅇㅇ 나도 봐서" sounds like a yes but only puts the decision off → proposed
+# 2 time_shift:   "토 발표 연습 3시로 늦추자" on an event already on the calendar → old time
+#                 rejected, new time confirmed, same day (or nothing changes if the team says no)
+# 3 constraint:   "나 7시까지 학원" is a reason, not a slot. That time is never an event.
+# 4 same_weekday: a bare weekday said on that weekday is next week; "이번주 X" is today.
+# Phrases in `cues` must appear in the chat but are not dates or times of any event, so they
+# are kept out of `must`. Each cue is a list of alternatives; offline.py checks them after
+# generate.check().
+
+# Each sounds positive or has an agreement word, but nobody commits.
+HEDGES = ["음 봐서", "ㅇㅇ 나도 봐서", "ㅇㅇ 일단 보고 말해줄게", "그래 일단 생각해볼게", "ㅇㅋ 엄마한테 물어보고",
+          "좋긴 한데 학원 시간 보고 말해줄게", "오 좋긴 한데 확인해볼게", "그래 봐서 말해줄게", "ㅇㅋ 스케줄 보고 알려줌",
+          "ㅇㅇ 생각해볼게", "그래 일단 알아볼게", "ㅇㅋㅇㅋ 확인해보고 말해줄게", "음 그날 가봐야 알 듯",
+          "ㅇㅇ 나중에 말해줄게", "좋긴 한데 아직 모르겠어", "나도 봐서", "ㅇㅋ 물어보고 말할게",
+          "그래 학원 끝나는 시간 보고", "ㅇㅇ 확실해지면 말해줄게", "오 괜찮을지도? 물어보고"]  # fmt: skip
+# how → (what the proposer says, stems that show it was said)
+SHIFTS = {"earlier": ("앞당기자", ["앞당", "당기", "땡기", "땡겨"]), "later": ("늦추자", ["늦추", "늦춰", "늦출"]),
+          "delay": ("미루자", ["미루", "미뤄", "미룰"]), "change": ("바꾸자", ["바꾸", "바꿔", "바꿀"])}  # fmt: skip
+UNTIL = ["{t}까지 학원", "{t}까지 알바", "학원 {t}에 끝남", "{t}까지 수업 있음", "{t} 전엔 안 됨", "{t}까지 과외"]
+FROM = ["{t}부터 됨", "{t} 이후로 가능", "{t}부터 시간 남"]
+LEAVE = ["{t}까지만 됨", "{t} 전에 집 가야 됨"]
+
+
+def _clock(minutes: int) -> dt.time:
+    return dt.time(minutes // 60, minutes % 60)
+
+
+def _times_in(text: str, ref: dt.date) -> set[str]:
+    return {m.time.strftime("%H:%M") for m in parse(text, ref) if m.time}
+
+
+def _speaking(beats: list[str], people: list[str]) -> int:
+    """Turns the beats need at least: one per person named before the ':'."""
+    return sum(len(set(b.split(":")[0].split(", ")) & set(people)) for b in beats if ":" in b and "답도 안 함" not in b)
+
+
+def _day_after(ref, rng, used, lo=1, hi=16) -> dt.date:
+    while True:
+        d = ref + dt.timedelta(days=rng.randint(lo, hi))
+        if d not in used:
+            used.add(d)
+            return d
+
+
+def _at(ref, rng, d, minutes, title=None, quiet=False) -> dict:
+    """A slot on day `d` at a given time, said the way students say it."""
+    place, say_place = (None, None) if quiet else rng.choice(PLACES)
+    return {
+        "d": d,
+        "start": _clock(minutes),
+        "time_text": None,
+        "say_date": _say_date(ref, d, rng),
+        "say_time": _say_clock(minutes // 60, minutes % 60, rng),
+        "place": place,
+        "say_place": say_place,
+        "title": title or ("모임" if quiet else rng.choice(TITLES)),
+    }
+
+
+def _moved(s: dict, minutes: int, rng) -> dict:
+    """Same day, place and title at another time. Times that aren't :00/:30 aren't said."""
+    say = _say_clock(minutes // 60, minutes % 60, rng) if minutes % 30 == 0 else ""
+    return s | {"start": _clock(minutes), "time_text": None, "say_time": say}
+
+
+def _words(s: dict, quiet: bool) -> list[str]:
+    return _said(s) if quiet else [x for x in _must(s) if x]
+
+
+def _clear(options: list[str], must: list[str]) -> list[str]:
+    """Phrases that contain no required word ("줌" in "알려줌", "수" in "수업"): check() looks
+    for each required word anywhere in the chat, so a phrase like that would hide its absence."""
+    words = [w.replace(" ", "") for w in must]
+    return [o for o in options if not any(w in o.replace(" ", "") for w in words)]
+
+
+def _focus_hedge(ref, people, rng, used) -> dict:
+    lead, others = people[0], people[1:]
+    quiet = rng.random() < 0.5
+    has_time = rng.random() < 0.65
+    s = _quiet(ref, rng, used, has_time=has_time) if quiet else _slot(ref, rng, used)
+    if not has_time:
+        s |= {"start": None, "time_text": None, "say_time": ""}
+    if quiet:
+        pitch = f"{_when(s)}에 보자고 짧게 물어봄. 무슨 모임인지와 장소는 말하지 않음"
+    elif has_time:
+        pitch = f"{_pitch(s)} 제안"
+    else:
+        where = f", 장소 '{s['say_place']}'" if s["say_place"] else ""
+        pitch = f"'{s['say_date']}'{where}, 일정 이름 '{s['title']}' 제안. 시간은 아직 말하지 않음"
+    need = _need(len(people))
+    variant = rng.choices(["two_turn", "chain", "mixed", "long", "resolved"], [15, 30, 20, 20, 15])[0]
+    if variant == "mixed" and need - 2 < 1:  # 3 people: one plain yes would already be a majority
+        variant = "chain"
+    yes = []
+    if variant == "two_turn":
+        hedgers = [rng.choice(others)]
+    elif variant == "mixed":
+        yes = rng.sample(others, rng.randint(1, need - 2))  # proposer + yes stays below a majority
+        rest = [p for p in others if p not in yes]
+        hedgers = rng.sample(rest, rng.randint(1, len(rest)))
+    else:
+        least = need - 1 if variant == "resolved" else 2
+        hedgers = rng.sample(others, rng.randint(least, len(others)))
+    phrases = rng.sample(_clear(HEDGES, _words(s, quiet)), len(hedgers))
+    beats = [f"{lead}: {pitch}"]
+    beats += [f"{p}: '{h}'라고 답함 (이 말을 그대로 씀). 확답이 아니라 결정을 미룬 말" for p, h in zip(hedgers, phrases)]
+    if yes:
+        beats.append(f"{', '.join(yes)}: 분명하게 동의")
+    if variant == "long":
+        beats.append(f"{lead}: 다들 언제 알 수 있냐고 다시 물어봄")
+        beats.append(f"{rng.choice(hedgers)}: 아직 모른다고, 정해지면 말해준다고 함")
+    silent = [p for p in others if p not in hedgers + yes]
+    status = "proposed"
+    if variant == "resolved":  # contrast: the hedgers come back with a clear yes, so it is settled
+        beats.append(f"{', '.join(rng.sample(hedgers, need - 1))}: 나중에 확인해 보니 된다고 분명하게 말함. 아무도 반대하지 않음")
+        status = "confirmed"
+    elif silent:
+        beats.append(f"{', '.join(silent)}: 이 일정에 끝까지 아무 답도 안 함")
+    if status == "proposed":
+        beats.append("아무도 결론을 내지 않고 끝남. '그럼 그때 보자' 같은 마무리 말은 하지 않음")
+    k = _speaking(beats, people)
+    turns = {"two_turn": (2, 2), "long": (max(7, k), 10)}.get(variant, (k, k + 2))
+    return {"variant": variant, "beats": beats, "events": [_event(s, status, people)], "existing": [],
+            "must": _words(s, quiet), "cues": [[h] for h in phrases], "says_confirm": False, "turns": turns,
+            "small_talk": variant == "long"}  # fmt: skip
+
+
+def _focus_time_shift(ref, people, rng, used) -> dict:
+    lead = rng.choice(people)
+    others = [p for p in people if p != lead]
+    title = rng.choice(TITLES)
+    d = _day_after(ref, rng, used)
+    how = rng.choices(list(SHIFTS), [25, 30, 20, 25])[0]
+    while True:
+        old = rng.randrange(11 * 60, 20 * 60 + 1, 30)
+        if how == "delay":
+            step = rng.choice([10, 15, 20, 30, 30, 40, 60])
+        else:
+            step = rng.choice([30, 60, 60, 90, 120, 180]) * (-1 if how == "earlier" else 1)
+            if how == "change" and rng.random() < 0.5:
+                step = -step
+        new = old + step
+        if 10 * 60 <= new <= 21 * 60 + 30:
+            break
+    was = _at(ref, rng, d, old, title)
+    now = _moved(was, new, rng)
+    verb, stems = SHIFTS[how]
+    say_old, say_title = rng.random() < 0.5, rng.random() < 0.65
+    amount = ("1시간" if rng.random() < 0.5 else "한 시간") if step == 60 else f"{step}분"
+    what = f"'{amount}' {verb}" if how == "delay" else f"'{now['say_time']}'(으)로 {verb}"
+    pitch = f"'{was['say_date']}'" + (f" '{was['say_time']}'" if say_old else "") + (f" '{title}'" if say_title else "")
+    beat = f"{lead}: 이미 잡혀 있던 {pitch} 일정을 날짜는 그대로 두고 시간만 {what}고 함 ('{verb}'처럼 말함)"
+    beat += "" if say_old else ". 원래 시간은 말하지 않음"
+    beat += "" if say_title else ". 일정 이름은 말하지 않고 날짜로만 가리킴"
+    must = [was["say_date"]] + [was["say_time"]] * say_old + [title] * say_title
+    must.append(amount if how == "delay" else now["say_time"])
+    variant = rng.choices(["agree", "short_agree", "refuse", "pending"], [45, 20, 22, 13])[0]
+    beats, word = [beat], False
+    keep = _event(was, "confirmed", people)
+    if variant == "agree":
+        settle, word = _settle(lead, people, rng)
+        beats += settle
+        events = [_event(was, "rejected"), _event(now, "confirmed", people)]
+    elif variant == "short_agree":
+        beats.append(f"{', '.join(rng.sample(others, _need(len(people)) - 1))}: 한두 글자로 동의")
+        events = [_event(was, "rejected"), _event(now, "confirmed", people)]
+    elif variant == "refuse":  # the team says no: the calendar entry stays, the new time is dropped
+        no = rng.sample(others, rng.randint(1, len(others)))
+        beats += [f"{', '.join(no)}: 바꾼 시간은 안 된다고 함",
+                  f"{rng.choice(no)}: 그냥 원래 시간대로 하자고 함",
+                  f"{lead}: 알겠다고 함. 일정은 원래 시간 그대로 유지됨"]  # fmt: skip
+        events = [dict(keep), _event(now, "rejected")]
+    else:  # nobody decides: the calendar entry stays, the new time is only proposed
+        beats += [f"{rng.choice(others)}: '{rng.choice(HEDGES)}'처럼 확답 없이 미룸", "나머지는 답이 없고, 결론 없이 끝남"]
+        events = [dict(keep), _event(now, "proposed", people)]
+    k = _speaking(beats, people)
+    return {"variant": f"{how}_{variant}", "beats": beats, "events": events, "existing": [keep], "must": must,
+            "cues": [stems], "says_confirm": word, "turns": (k, k + 3),
+            "small_talk": variant == "agree" and rng.random() < 0.4, "shift": [how, old, new, step]}  # fmt: skip
+
+
+def _focus_constraint(ref, people, rng, used) -> dict:
+    lead, others = people[0], people[1:]
+    quiet = rng.random() < 0.4
+    d = _day_after(ref, rng, used)
+    variant = rng.choices(["late_reject", "first", "from", "window", "late_pending"], [40, 25, 15, 10, 10])[0]
+    first = rng.randrange(15 * 60, (17 if variant == "window" else 19) * 60 + 1, 60)
+    block = first + 60  # busy until / free from this time
+    t1 = _at(ref, rng, d, first, quiet=quiet)
+    t2 = _moved(t1, block + rng.choice([30, 60]), rng)
+    who = rng.choice(others)
+    must = _words(t2, quiet) if variant == "first" else _words(t1, quiet) + [t2["say_time"]]
+    say_block = _say_clock(block // 60, 0, rng)
+    phrase = rng.choice(_clear([x.format(t=say_block) for x in (FROM if variant == "from" else UNTIL)], must))
+    cues = [[phrase]]
+    limit = "그 시각부터 된다는" if variant == "from" else "그 시각까지는 안 된다는"
+    reason = f"{who}: '{phrase}'라고 말함 (이 말을 그대로 씀). {limit} 사정일 뿐, 그 시각에 하자는 제안이 아님"
+    if variant == "first":
+        mover = lead
+        beats = [reason.replace("라고 말함", "라고 먼저 말함"),
+                 f"{lead}: 그럼 {_when(t2) if quiet else _pitch(t2)}(으)로 하자고 제안"]  # fmt: skip
+        events = []
+    else:
+        mover = rng.choice(people)
+        beats = [f"{lead}: {_when(t1)}에 보자고 제안" if quiet else f"{lead}: {_pitch(t1)} 제안", reason]
+        if variant == "window":
+            leave = block + rng.choice([150, 180])
+            other = rng.choice([p for p in people if p != who])
+            say_leave = _say_clock(leave // 60, leave % 60, rng)
+            stop = rng.choice(_clear([x.format(t=say_leave) for x in LEAVE], must))
+            cues.append([stop])
+            beats.append(f"{other}: '{stop}'라고 말함 (이 말을 그대로 씀). 이것도 사정일 뿐 제안이 아님")
+        beats.append(f"{mover}: 그럼 '{t2['say_time']}' 어떠냐고 다시 제안 (날짜는 그대로)")
+        events = [_event(t1, "rejected")]
+    word = False
+    if variant == "late_pending":
+        beats.append("이 새 제안에는 아무도 답하지 않고 대화가 끝남")
+        events.append(_event(t2, "proposed", people))
+    else:
+        settle, word = _settle(mover, people, rng)
+        beats += settle
+        events.append(_event(t2, "confirmed", people))
+    k = _speaking(beats, people)
+    return {"variant": variant, "beats": beats, "events": events, "existing": [], "must": must, "cues": cues,
+            "says_confirm": word, "turns": (k, k + 3), "small_talk": rng.random() < 0.3}  # fmt: skip
+
+
+def _focus_same_weekday(ref, people, rng, used) -> dict:
+    """The chat happens on weekday w and names w. Bare w → next week, 이번주 w → today."""
+    w = WEEKDAYS[ref.weekday()]
+    variant = rng.choices(["bare", "this_week", "next_week", "clarify"], [45, 25, 15, 15])[0]
+    d = ref if variant == "this_week" else ref + dt.timedelta(days=7)
+    used.add(d)
+    bare = [f"{w}요일", f"{w}욜"] + ([w] if w != "일" else [])
+    say = {"bare": bare, "clarify": bare, "this_week": [f"이번주 {w}", f"이번 주 {w}요일", f"이번주 {w}욜"],
+           "next_week": [f"다음주 {w}", f"담주 {w}요일", f"다음 주 {w}요일"]}[variant]  # fmt: skip
+    while True:
+        start, time_text, say_time = _say_time(rng)
+        if start and (variant != "this_week" or start.hour >= 15):  # today: still ahead of the chat
+            break
+    s = {"d": d, "start": start, "time_text": time_text, "say_date": rng.choice(say), "say_time": say_time,
+         "place": None, "say_place": None, "title": "모임"}  # fmt: skip
+    if variant != "this_week" and rng.random() < 0.3:
+        s |= {"start": None, "time_text": None, "say_time": ""}
+    p, must = people, _said(s)
+    if variant == "clarify":
+        again = rng.choice([f"담주 {w}요일", f"다음주 {w}"])
+        beats = [f"{p[0]}: {_when(s)}에 보자고 짧게 제안. 오늘이 {w}요일이라 헷갈릴 수 있음",
+                 f"{p[1]}: 오늘 말하는 거냐 다음 주 말하는 거냐고 물어봄",
+                 f"{p[0]}: '{again}'라고 답함", f"{p[1]}, {p[2]}: 한두 글자로 동의"]  # fmt: skip
+        return {"variant": variant, "beats": beats, "events": [_event(s, "confirmed", p)], "existing": [],
+                "must": must + [again], "cues": [], "says_confirm": False, "turns": (5, 5), "small_talk": False}
+    if rng.random() < 0.65:
+        beats = [f"{p[0]}: {_when(s)}에 보자고 짧게 제안. 무슨 모임인지와 장소는 말하지 않음", f"{p[1]}: 한두 글자로 동의"]
+        if rng.random() < 0.6:
+            beats.append(f"{p[2]}: 한두 글자로 동의")
+        status = "confirmed"
+    else:
+        reply = rng.choice(["아직 모르겠다고 함", "학원 시간을 봐야 안다고 함", "생각해보겠다고 함"])
+        beats = [f"{p[0]}: {_when(s)}에 볼지 짧게 물어봄. 무슨 모임인지와 장소는 말하지 않음",
+                 f"{p[1]}: {reply}. 동의나 거절은 하지 않음", "아무도 결론을 내지 않고 끝남"]  # fmt: skip
+        status = "proposed"
+    k = _speaking(beats, people)
+    return {"variant": f"{variant}_{status}", "beats": beats, "events": [_event(s, status, p)], "existing": [],
+            "must": must, "cues": [], "says_confirm": False, "turns": (k, k + 1), "small_talk": False}  # fmt: skip
+
+
+FOCUS = {  # builder, weight. "short" = an ordinary make_short() chat
+    "hedge": (_focus_hedge, 35), "time_shift": (_focus_time_shift, 25), "constraint": (_focus_constraint, 20),
+    "same_weekday": (_focus_same_weekday, 10), "short": (None, 10),
+}  # fmt: skip
+
+
+def _clock_fits(sc: dict, rng) -> bool:
+    """Pick start_minute so the chat stays on ref_date (check() and the bare-weekday rule both
+    depend on the day) and ends before any event later that same day. False if it can't."""
+    span = sum(sc["gaps"][: sc["max_turns"]])
+    hi = 24 * 60 - 1 - span
+    for e in sc["events"] + sc["existing_events"]:
+        if e["date"] == sc["ref_date"] and e["start"]:
+            hi = min(hi, int(e["start"][:2]) * 60 + int(e["start"][3:5]) - 30 - span)
+    if hi < 6 * 60:
+        return False
+    sc["start_minute"] = rng.randint(min(8 * 60, hi), min(hi, 22 * 60))
+    return True
+
+
+def make_focus(rng: random.Random) -> dict:
+    """One scenario for the four weak spots (see above). Same shape as make_short() plus
+    `variant` and `cues`. type is hedge / time_shift / constraint / same_weekday, or the
+    make_short() type for the ordinary short chats (variant short_<type>)."""
+    while True:
+        kind = rng.choices(list(FOCUS), weights=[w for _, w in FOCUS.values()])[0]
+        if kind == "short":
+            sc = make_short(rng) | {"cues": []}
+            sc["variant"] = f"short_{sc['type']}"
+        else:
+            ref = dt.date(2026, 3, 1) + dt.timedelta(days=rng.randint(0, 305))
+            people = rng.sample(NAMES, 3 if kind == "same_weekday" else rng.choices([3, 4, 5], [4, 4, 2])[0])
+            used: set = set()
+            b = FOCUS[kind][0](ref, people, rng, used)
+            existing = b["existing"]
+            if kind != "same_weekday" and rng.random() < 0.4:
+                taken = {e["title"] for e in b["events"] + existing}
+                existing = existing + _unrelated_events(ref, people, rng, used, taken)
+            lo, hi = b["turns"]
+            sc = {
+                "type": kind,
+                "variant": b["variant"],
+                "ref_date": ref.isoformat(),
+                "participants": people,
+                "beats": b["beats"],
+                "must": b["must"],
+                "cues": b["cues"],
+                "says_confirm": b["says_confirm"],
+                "events": b["events"],
+                "existing_events": existing,
+                "style": rng.choice(STYLES),
+                "small_talk": rng.choice([t for t in SMALL_TALK if t]) if b["small_talk"] else None,
+                "agree_words": rng.sample(AGREE, 4),
+                "turns": rng.randint(lo, hi),
+                "min_turns": max(2, lo - 1),
+                "max_turns": hi + 3,
+                "start_minute": 0,
+                "gaps": [rng.randint(0, 4) for _ in range(40)],
+            }
+            if "shift" in b:
+                sc["shift"] = b["shift"]  # [how, old minute, new minute, step], for focus_errors
+        if _clock_fits(sc, rng):
+            return sc
+
+
+def focus_errors(sc: dict) -> list[str]:
+    """What is wrong with a make_focus() gold; empty when it follows plan 8.3 and the chat's
+    required words can carry it. Facts are re-derived from the words through the parser
+    rather than taken from the builder, so a broken builder shows up here."""
+    errs = []
+    ref = dt.date.fromisoformat(sc["ref_date"])
+    people, events, existing = sc["participants"], sc["events"], sc["existing_events"]
+    for e in events:
+        d = dt.date.fromisoformat(e["date"])
+        if d < ref:
+            errs.append(f"past date {e['date']}")
+        if e["weekday"] != WEEKDAYS[d.weekday()]:
+            errs.append(f"weekday {e['weekday']} for {e['date']}")
+        if e["start"] and e["time_text"]:
+            errs.append("both start and time_text")
+        if set(e["attendees"]) & set(e["absent"]) or set(e["attendees"] + e["absent"]) - set(people):
+            errs.append("attendees")
+        if e["status"] in ("confirmed", "proposed") and sorted(e["attendees"] + e["absent"]) != sorted(people):
+            errs.append("not everyone is attendee or absent")
+        if e["status"] == "rejected" and e["attendees"]:
+            errs.append("rejected event has attendees")
+    squash = lambda xs: [x.replace(" ", "") for x in xs]  # noqa: E731
+    cue_words = [c for alts in sc["cues"] for c in alts]
+    mentions = [m for w in sc["must"] for m in parse(f"{w} 회의", ref) if m.date]
+    said_times = set().union(set(), *(_times_in(w, ref) for w in sc["must"]))
+    cue_times = set().union(set(), *(_times_in(c, ref) for c in cue_words))
+    gold_dates = {e["date"] for e in events}
+    gold_starts = {e["start"] for e in events if e["start"]}
+    if gold_dates - {m.date.isoformat() for m in mentions}:
+        errs.append("a gold date is not in the must expressions")
+    if {m.date.isoformat() for m in mentions if not m.tentative} - gold_dates - {e["date"] for e in existing}:
+        errs.append("must has a date that is no event's date")
+    if said_times - gold_starts - {e["start"] for e in existing if e["start"]}:
+        errs.append("must has a time that is no event's time")
+    if cue_times & (gold_starts | said_times):
+        errs.append("constraint time is an event time or a must expression")
+    if any(m in c for m in squash(sc["must"]) for c in squash(cue_words)):
+        errs.append("a must expression is inside a cue, so check() can't tell it is missing")
+    if not sc["says_confirm"] and any("확정" in x for x in sc["beats"] + cue_words):
+        errs.append("확정 in beats")
+    if any("근데" in c for c in cue_words):
+        errs.append("근데 in a cue (the writer prompt forbids it)")
+    kind, variant = sc["type"], sc["variant"]
+    statuses = [e["status"] for e in events]
+    if kind == "hedge":
+        want = "confirmed" if variant == "resolved" else "proposed"
+        if statuses != [want]:
+            errs.append(f"hedge {variant} gold {statuses}")
+        if cue_times or any(m.date for c in cue_words for m in parse(c, ref)):
+            errs.append("a hedge phrase reads as a date or time")
+    elif kind == "time_shift":
+        errs += _time_shift_errors(sc)
+    elif kind == "constraint":
+        if not cue_times:
+            errs.append("constraint phrase has no time")
+        if not events or statuses[-1] not in ("confirmed", "proposed") or set(statuses[:-1]) - {"rejected"}:
+            errs.append(f"constraint gold {statuses}")
+        elif events[-1]["start"]:  # "HH:MM" strings compare in time order
+            last = events[-1]["start"]
+            busy = _times_in(cue_words[0], ref)  # until / from this time
+            leave = _times_in(cue_words[1], ref) if len(cue_words) > 1 else set()  # must be done by
+            if any(last <= t for t in busy) or any(last >= t for t in leave):
+                errs.append("final time is outside what the constraints allow")
+    elif kind == "same_weekday":
+        d = dt.date.fromisoformat(events[0]["date"])
+        if d.weekday() != ref.weekday() or (d - ref).days != (0 if variant.startswith("this_week") else 7):
+            errs.append(f"same weekday {variant}: {d} for ref {ref}")
+        if _date_of(sc["must"][0], ref) != d:
+            errs.append("the date expression doesn't resolve to the gold date")
+    return errs
+
+
+def _time_shift_errors(sc: dict) -> list[str]:
+    events, existing = sc["events"], sc["existing_events"]
+    how, old, new, step = sc["shift"]
+    old_t, new_t = _clock(old).strftime("%H:%M"), _clock(new).strftime("%H:%M")
+    if len(events) != 2 or len({e["date"] for e in events}) != 1 or len({e["title"] for e in events}) != 1:
+        return ["a time shift is two events with the same day and title"]
+    mine = [x for x in existing if x["date"] == events[0]["date"] and x["title"] == events[0]["title"]]
+    if len(mine) != 1 or mine[0]["status"] != "confirmed":
+        return ["the moved event is not on the calendar exactly once"]
+    if events[0]["start"] == events[1]["start"]:
+        return ["time shift events share a start"]
+    errs = []
+    by_start = {e["start"]: e for e in events}
+    if set(by_start) != {old_t, new_t} or mine[0]["start"] != old_t:
+        errs.append("time shift starts are not the calendar time and the new time")
+    if new - old != step or step == 0 or (how == "earlier") == (step > 0) and how != "change":
+        errs.append(f"{how} by {step} min goes the wrong way")
+    want = {"agree": ("rejected", "confirmed"), "short_agree": ("rejected", "confirmed"),
+            "refuse": ("confirmed", "rejected"), "pending": ("confirmed", "proposed")}[sc["variant"].split("_", 1)[1]]  # fmt: skip
+    if (by_start.get(old_t, {}).get("status"), by_start.get(new_t, {}).get("status")) != want:
+        errs.append(f"time shift {sc['variant']} gold statuses")
+    if want[0] == "confirmed" and by_start.get(old_t) != mine[0]:
+        errs.append("the kept event differs from the calendar entry")
+    return errs
