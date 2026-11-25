@@ -76,10 +76,10 @@ def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationRe
     for s, e, _, kind in candidate.default_hits(text):
         (certain if kind == "certain" else ambiguous).append((s, e))
     # 후보 읽기: 공백/숫자/기호로 가린 철자를 사전에서 찾기만 해요. 여기서 걸린 곳은
-    # 모두 애매한 단어로 다뤄요. 이미 certain으로 가려진 곳 안은 건너뛰어요.
-    for s, e, _ in candidate.hits(text):
+    # 거의 애매한 단어로 다뤄요 ("ㅅ1발" 모양만 certain). 이미 certain으로 가려진 곳 안은 건너뛰어요.
+    for s, e, _, kind in candidate.hits(text):
         if not any(cs <= s and e <= ce for cs, ce in certain):
-            ambiguous.append((s, e))
+            (certain if kind == "certain" else ambiguous).append((s, e))
     restored = norm
     if certain and not ambiguous:  # certain 단어만: 모델 없이 바로 욕이에요
         return ModerationResult(True, 1.0, _spans(certain), restored, "dict")

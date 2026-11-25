@@ -100,9 +100,9 @@ def check_row(r) -> str | None:
 def hit_words(text: str) -> Counter:
     """사전에 걸린 단어를 (단어, 종류)별로 센 것. 서빙(moderate)과 똑같이 기본 읽기
     (candidate.default_hits: 띄어쓰기를 지워서 생긴 단어는 ambiguous)와 후보 읽기를
-    모두 봐요. 후보 읽기에서만 걸린 단어도 "ambiguous"로 세요."""
+    모두 봐요. 후보 읽기의 종류도 서빙과 같아요 ("ㅅ1발" 모양만 certain)."""
     hits = Counter((w, kind) for _, _, w, kind in candidate.default_hits(text))
-    extra = Counter((w, "ambiguous") for _, _, w in candidate.hits(text))
+    extra = Counter((w, kind) for _, _, w, kind in candidate.hits(text))
     return hits | extra  # 같은 단어를 두 번 세지 않아요
 
 
@@ -111,7 +111,7 @@ def swear_spans(text: str) -> list[tuple[int, int]]:
     확실/애매, 기본 읽기/후보 읽기를 가리지 않아요 ("고양이 새끼"의 새끼도 바꿔 봐야
     모델이 "새1끼"를 문맥으로 판단하는 법을 배워요)."""
     spans = {(s, e) for s, e, _, _ in candidate.default_hits(text)}
-    spans |= {(s, e) for s, e, _ in candidate.hits(text)}
+    spans |= {(s, e) for s, e, _, _ in candidate.hits(text)}
     return sorted(spans)
 
 
