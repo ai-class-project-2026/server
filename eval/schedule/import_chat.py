@@ -2,6 +2,7 @@
 
     uv run python eval/schedule/import_chat.py R001 chat.txt
     uv run python eval/schedule/import_chat.py R001 chat.txt --rename "철수=지민,영희=유나"
+    uv run python eval/schedule/import_chat.py P001 chat.txt --source ai_persona --out ...   # 사람이 아니라 AI가 한 역할극
 
 카드(cards.jsonl)에서 type, 기준일, 참여자, 기존 일정을 가져와 붙이고
 아래 파일 끝에 한 줄 추가한다. 어느 파일인지는 카드 번호의 첫 글자로 정해진다 (cards.py의 SETS).
@@ -185,6 +186,7 @@ def main():
     ap.add_argument("card_id")
     ap.add_argument("chat")
     ap.add_argument("--rename", default="", help='닉네임 바꾸기, 예: "철수=지민,영희=유나"')
+    ap.add_argument("--source", help="사람이 만든 대화가 아니면 적는다. 예: ai_persona")
     ap.add_argument("--cards", help="기본: 카드 번호 첫 글자로 정한다")
     ap.add_argument("--out", help="기본: 카드 번호 첫 글자로 정한다")
     args = ap.parse_args()
@@ -231,6 +233,7 @@ def main():
         "card_id": card["card_id"],
         "type": card["type"],
         **({"weakness": card["weakness"]} if "weakness" in card else {}),
+        **({"source": args.source} if args.source else {}),
         "ref_datetime": card["ref_datetime"],
         "participants": card["participants"],
         "dialogue": turns,

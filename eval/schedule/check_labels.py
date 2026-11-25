@@ -9,7 +9,8 @@
 start와 time_text를 같이 적지 않았는지, 참석/불참이 참여자 안에 있는지,
 확정 일정이 기준일보다 과거가 아닌지(8.3 제외 대상), type 값,
 확정 일정의 참석+불참이 참여자 전체와 딱 맞는지, type과 status가 서로 맞는지,
-같은 card_id가 두 번 나오지 않는지. 끝에 type별(약점 카드는 weakness별) 개수를 보여 준다.
+같은 card_id가 두 번 나오지 않는지, 최종본(test, pilot, hard.jsonl)에 AI가 만든 대화(source)가
+섞이지 않았는지. 끝에 type별(약점 카드는 weakness별) 개수를 보여 준다.
 두 라벨러 비교는 일정의 모든 칸을 보고, 참석/불참 이름은 순서를 무시한다.
 """
 
@@ -22,6 +23,7 @@ from collections import Counter
 from pathlib import Path
 
 WD = "월화수목금토일"
+HUMAN_ONLY = {"test.jsonl", "pilot.jsonl", "hard.jsonl"}  # 최종 점수를 내는 파일: 사람이 한 역할극만 (8.6 ②)
 STATUS = {"proposed", "rejected", "confirmed", "cancelled"}
 TYPES = {"confirm", "proposal_only", "revise", "cancel", "partial_absent", "relative_date", "not_schedule"}
 # 한국 시각(KST). 서버 프롬프트(prompt.py)와 같은 규칙: 시간대가 있으면 KST로 바꾸고, 없으면 이미 KST로 본다.
@@ -181,7 +183,11 @@ def main():
         for cid in [c for c, k in ids.items() if k > 1]:
             count += 1
             print(f"{path}: card_id {cid} 줄이 {ids[cid]}개 있음")
-        for field in ("type", "weakness"):
+        ai = [str(r.get("card_id")) for r in recs if r.get("source")]
+        if ai and Path(path).name in HUMAN_ONLY:
+            count += 1
+            print(f"{path}: 사람 대화만 넣는 파일인데 source가 적힌 줄이 {len(ai)}개 있음 ({', '.join(ai[:5])}...)")
+        for field in ("type", "weakness", "source"):
             kinds = Counter(str(r[field]) for r in recs if r.get(field))
             if kinds:
                 print(f"{path}: {field}별 " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
