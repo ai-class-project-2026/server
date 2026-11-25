@@ -46,7 +46,7 @@
 - `ml/common/dateparse_ko/__init__.py` (`_drop_apposed`), `examples.py`
 - `eval/schedule/cards.py`, `import_chat.py`, `check_labels.py`, `score.py`, `run.py`, `guideline.md`
 - 새 파일: `data/schedule/pilot/cards/`, `data/schedule/real_test/hard_cards/`
-- plan 레포 `README.md` 8.3, 8.5, 8.6, 8.9, 16.3, 17.5 (파트 4가 맞는 줄만)
+- plan 레포 `README.md` 8.3, 8.5, 8.6, 8.9, 16.3, 17.5 (아래 마지막 프롬프트에서 취소함)
 
 ---
 
@@ -62,3 +62,18 @@
 ### 변경 사항
 
 - `eval/schedule/guideline.md` (확정 날짜 한 줄)
+
+---
+
+## 프롬프트
+
+아이 잠만 너 실수했어 seojinha 브랜치를 plan에 만들면 어케. 저거 없애고 server에 해
+
+### 결과
+
+plan 레포에 만든 `seojinha` 브랜치를 원격과 로컬에서 지웠다. 들어 있던 커밋은 기획서를 고친 `b1c6442` 하나였다. 기획서는 고치지 않은 상태로 돌아갔다.
+`guideline.md`에는 "다르면 기획서를 따른다"고 적혀 있어서, 그대로 두면 확정한 날짜 규칙이 옛 기획서에 밀린다. 그래서 기획서와 다른 점을 `guideline.md` 맨 위 표에 예외로 적었다.
+
+### 변경 사항
+
+- `eval/schedule/guideline.md` (기획서와 다른 점 표, 확정 날짜 줄은 표로 옮김)
