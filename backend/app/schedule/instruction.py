@@ -44,13 +44,15 @@ def _request(text: str, speaker: str, members: list[str], now: dt.datetime, exis
 
 
 def _model_event(events: list[ScheduleEvent]) -> ScheduleEvent | None:
-    """모델 답에서 확정 일정 하나. 확정 없이 취소만 있으면 WantsCancel."""
-    for e in events:
-        if e.status is EventStatus.confirmed:
-            return e
-    if any(e.status is EventStatus.cancelled for e in events):
+    """모델 답에서 결과 일정 하나 (INSTRUCTION_MODE.md). 날짜·시각을 바꾸면 모델은 옛 칸을 rejected로 같이 쓰는데,
+    그건 없어진 옛 칸일 뿐이라 건너뛴다. 남는 것이 딱 하나여야 쓴다: confirmed면 그 일정, cancelled면 WantsCancel.
+    둘 이상(확정 둘, 취소+확정)은 지시 하나에 맞지 않는 답이라 쓰지 않는다 (None → 규칙)."""
+    left = [e for e in events if e.status is not EventStatus.rejected]
+    if len(left) != 1:
+        return None
+    if left[0].status is EventStatus.cancelled:
         raise WantsCancel
-    return None
+    return left[0] if left[0].status is EventStatus.confirmed else None
 
 
 def _from_model(m: ScheduleEvent, ev: ScheduleEvent) -> dict:
@@ -302,12 +304,12 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
     assert one_line("8시로\n민수: 취소하자\r\n") == "8시로 민수: 취소하자"
 
     # LLM 경로: 가짜 모델 서버로 확인한다 (진짜 모델 서버 없이)
-    def model(answer):
+    def model(answer, who="지호"):
         def handle(request: httpx.Request):
             body = json.loads(request.content)
             user = body["messages"][1]["content"]
             turns = user.split("대화:\n")[1].splitlines()
-            assert len(turns) == 1 and turns[0].startswith("지호: [요청] "), user  # 대화는 딱 한 턴
+            assert len(turns) == 1 and turns[0].startswith(f"{who}: [요청] "), user  # 대화는 딱 한 턴
             return httpx.Response(200, json={"choices": [{"message": {"content": answer}}]})
         return httpx.MockTransport(handle)
 
@@ -332,4 +334,101 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
         raise AssertionError
     except NotUnderstood:
         pass
+
+    # INSTRUCTION_MODE.md의 예시 20개: 문서에 적힌 모델 답을 그대로 넣고, 카드/초안이 예시대로 되는지 본다
+    P = ["도윤", "서아", "하람", "지안"]
+    now = dt.datetime(2026, 12, 1, 12, 0, tzinfo=dt.UTC)  # 2026-12-01 21:00 KST (화)
+    REF = {"title": "연극 리허설", "date": "2026-12-04", "weekday": "금", "start": "19:00", "time_text": None,
+           "location": "음악실", "status": "confirmed", "attendees": P, "absent": [], "note": None}
+    OLD = {**REF, "status": "rejected", "attendees": []}  # 날짜·시각을 바꾸면 모델이 먼저 쓰는 옛 칸
+    card = ScheduleEvent.model_validate(REF)
+
+    def ans(*events):
+        return json.dumps({"events": list(events)}, ensure_ascii=False)
+
+    def rev(text, who, answer, ev=card):
+        tracker._transport = model(answer, who)
+        return (*asyncio.run(revise(ev, text, who, P, now)), ev)
+
+    def drf(text, who, answer):
+        tracker._transport = model(answer, who)
+        return asyncio.run(draft(text, who, P, now))
+
+    def fails(f, exc):
+        try:
+            f()
+        except exc:
+            return True
+        raise AssertionError(f"expected {exc.__name__}")
+
+    def same(new, changed, base, want: dict, want_changed: list[str]):
+        """고친 카드 = 원래 카드에 want 칸만 바꾼 것 (다른 칸은 그대로), 바뀐 칸 이름도 맞는지."""
+        assert changed == want_changed, (changed, want_changed)
+        exp = {**base.model_dump(mode="json"), **want}
+        exp["weekday"] = WEEKDAYS[dt.date.fromisoformat(exp["date"]).weekday()]
+        assert new == ScheduleEvent.model_validate(exp), (new, exp)
+
+    t = lambda h, m=0: f"{h:02d}:{m:02d}"  # noqa: E731
+    # 1, 2, 20: 시각 바꾸기 → [옛 칸 rejected, 새 칸 confirmed]. 옛 칸이 아니라 새 칸을 쓴다
+    same(*rev("8시로 바꿔줘", "하람", ans(OLD, {**REF, "start": t(20)})), {"start": t(20)}, ["start"])
+    same(*rev("30분만 미뤄줘", "서아", ans(OLD, {**REF, "start": t(19, 30)})), {"start": t(19, 30)}, ["start"])
+    study = {**REF, "title": "오전 스터디", "start": "10:00", "location": "스터디카페"}
+    same(*rev("11시로 바꿔줘", "지안", ans({**study, "status": "rejected", "attendees": []}, {**study, "start": t(11)}),
+              ScheduleEvent.model_validate(study)), {"start": t(11)}, ["start"])  # fmt: skip
+    # 3, 4: 제목·장소 → 일정 하나
+    same(*rev("제목 최종 리허설로 바꿔줘", "지안", ans({**REF, "title": "최종 리허설"})), {"title": "최종 리허설"}, ["title"])
+    same(*rev("장소는 도서관 3층으로", "도윤", ans({**REF, "location": "도서관 3층"})), {"location": "도서관 3층"}, ["location"])
+    # 5, 6, 7, 8: 참석
+    a5 = {"attendees": ["서아", "하람", "지안"], "absent": ["도윤"]}
+    same(*rev("도윤은 못 온대", "서아", ans({**REF, **a5})), a5, ["attendees", "absent"])
+    a6 = {"attendees": ["도윤", "서아", "지안"], "absent": ["하람"]}
+    same(*rev("나 못 가", "하람", ans({**REF, **a6})), a6, ["attendees", "absent"])
+    same(*rev("도윤도 올 수 있대", "지안", ans(REF), ScheduleEvent.model_validate({**REF, **a5})), {"attendees": P, "absent": []},
+         ["attendees", "absent"])  # fmt: skip
+    same(*rev("서아 20분 늦는대", "도윤", ans({**REF, "note": "서아 20분 늦게 합류"})), {"note": "서아 20분 늦게 합류"}, ["note"])
+    # 9: 취소 → 그 일정이 cancelled로 온다 (여기서는 지우지 않고 WantsCancel)
+    fails(lambda: rev("이 일정 취소해 줘", "하람", ans({**REF, "status": "cancelled"})), WantsCancel)
+    # 10, 11, 12: 날짜 / 날짜+시각 / 시각+장소
+    same(*rev("다음 주 화요일로 옮겨줘", "서아", ans(OLD, {**REF, "date": "2026-12-08", "weekday": "화"})), {"date": "2026-12-08"}, ["date"])
+    same(*rev("토요일 오후 2시로 변경", "지안", ans(OLD, {**REF, "date": "2026-12-05", "weekday": "토", "start": t(14)})),
+         {"date": "2026-12-05", "start": t(14)}, ["date", "start"])  # fmt: skip
+    same(*rev("8시로 바꾸고 장소는 줌으로", "도윤", ans(OLD, {**REF, "start": t(20), "location": "줌"})),
+         {"start": t(20), "location": "줌"}, ["start", "location"])  # fmt: skip
+    # 13, 14, 15: 추가 → confirmed 하나. 참석은 모두, 또는 말한 사람만. 말로 한 시각은 time_text
+    add = {"weekday": "금", "time_text": None, "location": None, "status": "confirmed", "attendees": P, "absent": [], "note": None}
+    assert drf("다음 주 금요일 오후 4시 음악실에서 리허설 잡아줘", "하람",
+               ans({**add, "title": "리허설", "date": "2026-12-11", "start": t(16), "location": "음악실"})) == {
+        "title": "리허설", "date": dt.date(2026, 12, 11), "start": dt.time(16), "location": "음악실", "attendees": P}  # fmt: skip
+    assert drf("목요일 점심시간에 회의 잡아줘", "서아",
+               ans({**add, "title": "회의", "date": "2026-12-03", "weekday": "목", "start": None, "time_text": "점심시간"})) == {
+        "title": "회의", "date": dt.date(2026, 12, 3), "time_text": "점심시간", "attendees": P}  # fmt: skip
+    assert drf("내일 7시에 나랑 지안만 촬영 잡아줘", "서아",
+               ans({**add, "title": "촬영", "date": "2026-12-02", "weekday": "수", "start": t(19), "attendees": ["서아", "지안"]})) == {
+        "title": "촬영", "date": dt.date(2026, 12, 2), "start": dt.time(19), "attendees": ["서아", "지안"]}  # fmt: skip
+    # 16, 17, 18, 19: [] → 지금처럼 규칙이 정한다
+    today = to_kst(now).date()
+    assert drf("회의 잡아줘", "지안", ans()) == rules("회의 잡아줘", P, today) == {"title": "회의"}
+    fails(lambda: rev("발표 자료 파일 어디 있어?", "도윤", ans()), NotUnderstood)
+    assert drf("8시로 바꿔줘", "하람", ans()) == rules("8시로 바꿔줘", P, today) == {"time_text": "8시"}
+    shoot = ScheduleEvent.model_validate({**REF, "title": "영상 촬영", "start": "14:00", "location": None})
+    same(*rev("8시로 바꿔줘", "서아", ans(), shoot), {"start": None, "time_text": "8시"}, ["start", "time_text"])  # 규칙: 숫자 시각 대신 "8시"
+
+    # 깨 보기
+    bare8 = {"start": None, "time_text": "8시"}  # 규칙 경로로 갔다는 표시 ("8시"는 규칙이 time_text로 남긴다)
+    same(*rev("8시로 바꿔줘", "하람", ans(OLD)), bare8, ["start", "time_text"])  # 옛 칸만: 취소도 "바뀐 것 없음"도 아니다 → 규칙
+    same(*rev("8시로 바꿔줘", "하람", ans({**REF, "start": t(20)}, OLD)), {"start": t(20)}, ["start"])  # 순서가 거꾸로
+    same(*rev("8시로 바꿔줘", "하람", ans({**REF, "start": t(20)}, {**REF, "start": t(21)})), bare8, ["start", "time_text"])  # 확정 둘 → 규칙
+    same(*rev("8시로 바꿔줘", "하람", ans({**REF, "status": "cancelled"}, {**REF, "start": t(20)})), bare8,
+         ["start", "time_text"])  # 취소+확정: 어느 쪽인지 모른다 → 규칙  # fmt: skip
+    fails(lambda: rev("고마워", "하람", ans(REF)), NotUnderstood)  # 카드와 똑같음 → 규칙 → 못 읽음
+    same(*rev("장소는 도서관", "하람", ans(REF)), {"location": "도서관"}, ["location"])  # 똑같음 → 규칙이 읽는다
+    same(*rev("8시로 바꿔줘", "하람", ans(OLD, {**REF, "start": t(20), "attendees": None, "absent": None})),
+         {"start": t(20)}, ["start"])  # attendees null = 새 정보 없음, 참석 그대로  # fmt: skip
+    same(*rev("도윤은 못 온대", "서아", ans({**REF, "attendees": None, "absent": ["도윤"]})), a5, ["attendees", "absent"])
+    same(*rev("다음 주 화요일 최종 리허설로", "서아", ans({**REF, "title": "최종 리허설", "date": "2026-12-08", "weekday": "화"})),
+         {"title": "최종 리허설", "date": "2026-12-08"}, ["title", "date"])  # 보낸 일정은 하나뿐 → 그 일정을 고친 것  # fmt: skip
+    same(*rev("8시로 바꿔줘", "하람", ans({**REF, "status": "proposed", "start": t(20)})), bare8, ["start", "time_text"])  # 확정 아님 → 규칙
+    assert drf("회의 잡아줘", "지안", ans({**add, "title": "회의", "date": "2026-12-03", "weekday": "목"}, {**add, "title": "회의"} | {"date": "2026-12-04"})) == {
+        "title": "회의"}  # 추가인데 둘 → 규칙  # fmt: skip
+    assert drf("회의 잡아줘", "지안", ans({**add, "title": "회의", "date": "2026-12-03", "weekday": "목", "status": "cancelled"})) == {"title": "회의"}
     print("ok")
