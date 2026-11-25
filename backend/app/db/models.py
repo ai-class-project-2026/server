@@ -107,7 +107,7 @@ class Workspace(Base):
     filter_mode: Mapped[FilterMode] = mapped_column(
         _enum(FilterMode), default=FilterMode.mask
     )
-    filter_level: Mapped[int] = mapped_column(default=2)
+    filter_level: Mapped[int] = mapped_column(default=3)  # 3 = 엄격 (청소년용 기본값)
     # AI를 켠 시각. 이 시각 이후에 쓴 메시지만 AI가 본다 (켜기 전 대화는 동의 범위 밖). 꺼져 있으면 null.
     ai_enabled_at: Mapped[dt.datetime | None] = mapped_column(UTCDateTime)
 

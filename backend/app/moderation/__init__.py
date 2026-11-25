@@ -13,6 +13,8 @@ log = logging.getLogger(__name__)
 
 # filter_level 1 (lenient) .. 3 (strict) → classifier score needed to flag
 THRESHOLDS = {1: 0.9, 2: 0.7, 3: 0.5}
+# 엄격: 사전의 애매한 단어("꺼져", "새끼")도 문맥과 상관없이 가려요. 청소년용 기본값이에요
+STRICT = 3
 
 
 @dataclass
@@ -70,9 +72,9 @@ def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationRe
     norm = normalize.normalize_with_ends(text)[0]
     certain, ambiguous = [], []
     for s, e, _, kind in candidate.default_hits(text):
-        (certain if kind == "certain" else ambiguous).append((s, e))
+        (certain if kind == "certain" or level == STRICT else ambiguous).append((s, e))
     # 후보 읽기: 공백/숫자/기호로 가린 철자를 사전에서 찾기만 해요. 여기서 걸린 곳은
-    # 모두 애매한 단어로 다뤄요. 이미 certain으로 가려진 곳 안은 건너뛰어요.
+    # 모두 애매한 단어로 다뤄요 (엄격에서도: "다시 발표"처럼 우연히 붙은 글자가 많아요). 이미 certain으로 가려진 곳 안은 건너뛰어요.
     for s, e, _ in candidate.hits(text):
         if not any(cs <= s and e <= ce for cs, ce in certain):
             ambiguous.append((s, e))
