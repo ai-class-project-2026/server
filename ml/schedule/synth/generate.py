@@ -285,15 +285,14 @@ def demo():
     focus_demo()
 
 
-def focus_demo():
-    """scenarios.make_focus(): the checks above, plus focus_errors() on every gold, and
-    proof that focus_errors() and agrees() reject golds and answers that are wrong."""
+def _focus_run(make, seed: int, n: int, by_kind: dict) -> collections.Counter:
+    """n scenarios from make(): the make() checks, focus_errors(), and agrees() on the gold.
+    Keeps the first scenario of each variant in by_kind for the mutation tests."""
     import copy
 
-    rng = random.Random(1)
-    counts, by_kind = collections.Counter(), {}
-    for _ in range(3000):
-        sc = scenarios.make_focus(rng)
+    rng, counts = random.Random(seed), collections.Counter()
+    for _ in range(n):
+        sc = make(rng)
         counts[sc["type"]] += 1
         by_kind.setdefault(sc["variant"], sc)
         ref = dt.date.fromisoformat(sc["ref_date"])
@@ -315,8 +314,22 @@ def focus_demo():
                 wrong = copy.deepcopy(sc["events"])
                 wrong[i]["status"] = "confirmed"
                 assert not agrees(record, {"events": wrong}), sc
+    return counts
+
+
+def focus_demo():
+    """scenarios.make_focus() and make_focus2(): the checks above, plus focus_errors() on every
+    gold, and proof that focus_errors() and agrees() reject golds and answers that are wrong."""
+    import copy
+
+    by_kind = {}
+    counts = _focus_run(scenarios.make_focus, 1, 3000, by_kind)
     assert {"hedge", "time_shift", "constraint", "same_weekday"} <= set(counts), counts
     assert counts["hedge"] > counts["time_shift"] > counts["constraint"] > counts["same_weekday"], counts
+    counts2 = _focus_run(scenarios.make_focus2, 2, 3000, by_kind)
+    assert set(counts2) == {"time_shift", "constraint"} and counts2["time_shift"] > 2 * counts2["constraint"], counts2
+    refers = collections.Counter(sc.get("refer") for sc in by_kind.values() if sc["type"] == "time_shift")
+    assert refers["title"] and refers["title_weekday"] and refers[None], refers
 
     def fails(variant, change, why):
         """Break one generated gold the way a buggy builder would; focus_errors() must say why."""
@@ -363,7 +376,43 @@ def focus_demo():
     fails("chain", lambda sc: sc["events"][0].update(date="2026-01-01"), "past date")
     fails("mixed", lambda sc: sc["events"][0].update(absent=sc["participants"][:1]), "attendees")
     fails("two_turn", lambda sc: sc["must"].append("다음주 월"), "no event's date")
+
+    # make_focus2: title-only / title + weekday changes, and constraint times that are chosen
+    def pick(test):
+        return next(v for v, sc in by_kind.items() if test(sc))
+
+    title = pick(lambda sc: sc.get("refer") == "title" and sc["variant"].endswith("_agree"))
+    title_day = pick(lambda sc: sc.get("refer") == "title_weekday" and sc["variant"].endswith("refuse"))
+
+    def next_week(sc):  # the event and its calendar entry a week later; the bare weekday still says this week
+        for e in sc["events"] + sc["existing_events"][:1]:
+            d = dt.date.fromisoformat(e["date"]) + dt.timedelta(days=7)
+            e["date"], e["weekday"] = d.isoformat(), scenarios.WEEKDAYS[d.weekday()]
+
+    def rename_calendar(sc):
+        sc["existing_events"][0]["title"] = "다른 일정"
+
+    def chosen_elsewhere(sc):  # the final time is no longer the constraint time
+        sc["events"][-1]["start"], sc["apart"], sc["must"][-1] = "21:30", ["밤 9시 반"], "밤 9시 반"
+
+    def dropped_at_constraint(sc):
+        sc["events"].insert(0, sc["events"][-1] | {"status": "rejected", "attendees": []})
+
+    fails(title, lambda sc: sc["must"].insert(0, "다음주 월"), "title-only change must say the title and no date")
+    fails(title, lambda sc: sc["must"].remove(sc["events"][0]["title"]), "title-only change must say the title")
+    fails(title, rename_calendar, "a gold date is not in the must expressions")
+    fails(title, same_start, "share a start")
+    fails(title_day, next_week, "the weekday doesn't resolve to the calendar date")
+    fails(title_day, lambda sc: sc["must"].__setitem__(0, "다음주 " + sc["must"][0]), "must say a bare weekday")
+    fails(title_day, swap_statuses, "gold statuses")
+    fails("chosen", chosen_elsewhere, "the chosen time is not the constraint time")
+    fails("chosen_first", chosen_elsewhere, "the chosen time is not the constraint time")
+    fails("chosen", lambda sc: sc.__setitem__("apart", []), "constraint time is an event time")  # no apart: old rule
+    fails("chosen", dropped_at_constraint, "also a dropped time")
+    fails("chosen_first", lambda sc: sc["events"][-1].update(status="proposed"), "constraint gold")
+    fails("chosen", lambda sc: sc["apart"].__setitem__(0, "밤 11시"), "not proposed on its own")
     print("focus ok", dict(counts))
+    print("focus2 ok", dict(counts2), dict(refers))
 
 
 if __name__ == "__main__":

@@ -587,12 +587,8 @@ def _focus_hedge(ref, people, rng, used) -> dict:
             "small_talk": variant == "long"}  # fmt: skip
 
 
-def _focus_time_shift(ref, people, rng, used) -> dict:
-    lead = rng.choice(people)
-    others = [p for p in people if p != lead]
-    title = rng.choice(TITLES)
-    d = _day_after(ref, rng, used)
-    how = rng.choices(list(SHIFTS), [25, 30, 20, 25])[0]
+def _shift_times(rng, how: str) -> tuple[int, int, int]:
+    """(old minute, new minute, step) for a time-only change said with SHIFTS[how]."""
     while True:
         old = rng.randrange(11 * 60, 20 * 60 + 1, 30)
         if how == "delay":
@@ -603,21 +599,14 @@ def _focus_time_shift(ref, people, rng, used) -> dict:
                 step = -step
         new = old + step
         if 10 * 60 <= new <= 21 * 60 + 30:
-            break
-    was = _at(ref, rng, d, old, title)
-    now = _moved(was, new, rng)
-    verb, stems = SHIFTS[how]
-    say_old, say_title = rng.random() < 0.5, rng.random() < 0.65
-    amount = ("1시간" if rng.random() < 0.5 else "한 시간") if step == 60 else f"{step}분"
-    what = f"'{amount}' {verb}" if how == "delay" else f"'{now['say_time']}'(으)로 {verb}"
-    pitch = f"'{was['say_date']}'" + (f" '{was['say_time']}'" if say_old else "") + (f" '{title}'" if say_title else "")
-    beat = f"{lead}: 이미 잡혀 있던 {pitch} 일정을 날짜는 그대로 두고 시간만 {what}고 함 ('{verb}'처럼 말함)"
-    beat += "" if say_old else ". 원래 시간은 말하지 않음"
-    beat += "" if say_title else ". 일정 이름은 말하지 않고 날짜로만 가리킴"
-    must = [was["say_date"]] + [was["say_time"]] * say_old + [title] * say_title
-    must.append(amount if how == "delay" else now["say_time"])
+            return old, new, step
+
+
+def _shift_outcome(rng, lead, people, was, now, beats):
+    """How the team answers a time-only change → (outcome, beats, events, says 확정, calendar entry)."""
+    others = [p for p in people if p != lead]
     variant = rng.choices(["agree", "short_agree", "refuse", "pending"], [45, 20, 22, 13])[0]
-    beats, word = [beat], False
+    word = False
     keep = _event(was, "confirmed", people)
     if variant == "agree":
         settle, word = _settle(lead, people, rng)
@@ -635,6 +624,28 @@ def _focus_time_shift(ref, people, rng, used) -> dict:
     else:  # nobody decides: the calendar entry stays, the new time is only proposed
         beats += [f"{rng.choice(others)}: '{rng.choice(HEDGES)}'처럼 확답 없이 미룸", "나머지는 답이 없고, 결론 없이 끝남"]
         events = [dict(keep), _event(now, "proposed", people)]
+    return variant, beats, events, word, keep
+
+
+def _focus_time_shift(ref, people, rng, used) -> dict:
+    lead = rng.choice(people)
+    title = rng.choice(TITLES)
+    d = _day_after(ref, rng, used)
+    how = rng.choices(list(SHIFTS), [25, 30, 20, 25])[0]
+    old, new, step = _shift_times(rng, how)
+    was = _at(ref, rng, d, old, title)
+    now = _moved(was, new, rng)
+    verb, stems = SHIFTS[how]
+    say_old, say_title = rng.random() < 0.5, rng.random() < 0.65
+    amount = ("1시간" if rng.random() < 0.5 else "한 시간") if step == 60 else f"{step}분"
+    what = f"'{amount}' {verb}" if how == "delay" else f"'{now['say_time']}'(으)로 {verb}"
+    pitch = f"'{was['say_date']}'" + (f" '{was['say_time']}'" if say_old else "") + (f" '{title}'" if say_title else "")
+    beat = f"{lead}: 이미 잡혀 있던 {pitch} 일정을 날짜는 그대로 두고 시간만 {what}고 함 ('{verb}'처럼 말함)"
+    beat += "" if say_old else ". 원래 시간은 말하지 않음"
+    beat += "" if say_title else ". 일정 이름은 말하지 않고 날짜로만 가리킴"
+    must = [was["say_date"]] + [was["say_time"]] * say_old + [title] * say_title
+    must.append(amount if how == "delay" else now["say_time"])
+    variant, beats, events, word, keep = _shift_outcome(rng, lead, people, was, now, [beat])
     k = _speaking(beats, people)
     return {"variant": f"{how}_{variant}", "beats": beats, "events": events, "existing": [keep], "must": must,
             "cues": [stems], "says_confirm": word, "turns": (k, k + 3),
@@ -727,6 +738,82 @@ def _focus_same_weekday(ref, people, rng, used) -> dict:
             "must": must, "cues": [], "says_confirm": False, "turns": (k, k + 1), "small_talk": False}  # fmt: skip
 
 
+def _focus_title_shift(ref, people, rng, used) -> dict:
+    """time_shift where the chat never gives a numeric date: the event is named by its title
+    ("발표 연습 3시로 늦추자") or by title + bare weekday ("토 발표 연습 3시로 늦추자"). The date
+    comes from the calendar entry with that title (or from the weekday, which resolves to it)."""
+    lead = rng.choice(people)
+    title = rng.choice(TITLES)
+    refer = rng.choice(["title", "title_weekday"])
+    d = _day_after(ref, rng, used, 1, 7 if refer == "title_weekday" else 16)  # a bare weekday reaches 7 days
+    how = rng.choices(list(SHIFTS), [25, 30, 20, 25])[0]
+    old, new, step = _shift_times(rng, how)
+    was = _at(ref, rng, d, old, title)
+    if refer == "title":
+        was["say_date"] = ""
+    else:
+        w = WEEKDAYS[d.weekday()]
+        was["say_date"] = rng.choice([o for o in (w, f"{w}요일", f"{w}욜") if o != "일" and _date_of(o, ref) == d])
+    now = _moved(was, new, rng)
+    verb, stems = SHIFTS[how]
+    say_old = rng.random() < 0.5
+    amount = ("1시간" if rng.random() < 0.5 else "한 시간") if step == 60 else f"{step}분"
+    what = f"'{amount}' {verb}" if how == "delay" else f"'{now['say_time']}'(으)로 {verb}"
+    pitch = " ".join(f"'{x}'" for x in (was["say_date"], was["say_time"] if say_old else "", title) if x)
+    beat = f"{lead}: 이미 잡혀 있던 {pitch} 일정을 날짜는 그대로 두고 시간만 {what}고 함 ('{verb}'처럼 말함)"
+    if refer == "title":
+        beat += ". 날짜는 말하지 않고 일정 이름으로만 가리킴 (요일, 오늘/내일, 몇 월 며칠도 말하지 않음)"
+    else:
+        beat += ". 날짜는 요일로만 말함 (몇 월 며칠, 이번주/다음주 같은 말은 붙이지 않음)"
+    beat += "" if say_old else ". 원래 시간은 말하지 않음"
+    must = [was["say_date"]] * (refer != "title") + [was["say_time"]] * say_old + [title]
+    must.append(amount if how == "delay" else now["say_time"])
+    variant, beats, events, word, keep = _shift_outcome(rng, lead, people, was, now, [beat])
+    k = _speaking(beats, people)
+    return {"variant": f"{refer}_{how}_{variant}", "beats": beats, "events": events, "existing": [keep],
+            "must": must, "cues": [stems], "says_confirm": word, "turns": (k, k + 3), "refer": refer,
+            "small_talk": variant == "agree" and rng.random() < 0.4, "shift": [how, old, new, step]}  # fmt: skip
+
+
+def _focus_constraint_chosen(ref, people, rng, used) -> dict:
+    """The other side of `constraint`: someone says "7시부터 됨", then 7시 itself is proposed in
+    its own message and agreed. The constraint time *is* the answer here, so the model must not
+    learn that a time first heard as a constraint can never be chosen."""
+    lead, others = people[0], people[1:]
+    quiet = rng.random() < 0.4
+    d = _day_after(ref, rng, used)
+    variant = rng.choices(["chosen", "chosen_first"], [65, 35])[0]
+    first = rng.randrange(15 * 60, 19 * 60 + 1, 60)
+    block = first + rng.choice([60, 60, 90])  # free from this time, which then becomes the meeting time
+    t1 = _at(ref, rng, d, first, quiet=quiet)
+    t2 = _moved(t1, block, rng)
+    who = rng.choice(others)
+    rest = [w for w in _words(t2, quiet) if w != t2["say_time"]] if variant == "chosen_first" else _words(t1, quiet)
+    must = rest + [t2["say_time"]]
+    say_block = _say_clock(block // 60, block % 60, rng)
+    phrase = rng.choice(_clear([x.format(t=say_block) for x in FROM], rest))
+    reason = f"{who}: '{phrase}'라고 말함 (이 말을 그대로 씀). 그 시각부터 된다는 사정"
+    pick = f"그 시각을 '{t2['say_time']}'라고 따로 다시 말하며"
+    if variant == "chosen_first":
+        mover = lead
+        place = "" if quiet else (f", 장소 '{t2['say_place']}'" if t2["say_place"] else "") + f", 일정 이름 '{t2['title']}'"
+        beats = [reason.replace("라고 말함", "라고 먼저 말함"),
+                 f"{lead}: 그럼 방금 말한 그 시각에 하자고 함. '{t2['say_date']}'{place}, {pick} 제안"]  # fmt: skip
+        events = []
+    else:
+        mover = rng.choice(people)
+        beats = [f"{lead}: {_when(t1)}에 보자고 제안" if quiet else f"{lead}: {_pitch(t1)} 제안", reason,
+                 f"{mover}: " + ("그럼 그 시각에 하자고 바로 이어서 말함" if mover == who else f"그럼 {who} 말대로 그 시각에 하자고 함")
+                 + f". {pick} 다시 제안 (날짜는 그대로)"]  # fmt: skip
+        events = [_event(t1, "rejected")]
+    settle, word = _settle(mover, people, rng)
+    beats += settle
+    events.append(_event(t2, "confirmed", people))
+    k = _speaking(beats, people)
+    return {"variant": variant, "beats": beats, "events": events, "existing": [], "must": must, "cues": [[phrase]],
+            "apart": [t2["say_time"]], "says_confirm": word, "turns": (k, k + 3), "small_talk": rng.random() < 0.3}
+
+
 FOCUS = {  # builder, weight. "short" = an ordinary make_short() chat
     "hedge": (_focus_hedge, 35), "time_shift": (_focus_time_shift, 25), "constraint": (_focus_constraint, 20),
     "same_weekday": (_focus_same_weekday, 10), "short": (None, 10),
@@ -757,37 +844,59 @@ def make_focus(rng: random.Random) -> dict:
             sc = make_short(rng) | {"cues": []}
             sc["variant"] = f"short_{sc['type']}"
         else:
-            ref = dt.date(2026, 3, 1) + dt.timedelta(days=rng.randint(0, 305))
-            people = rng.sample(NAMES, 3 if kind == "same_weekday" else rng.choices([3, 4, 5], [4, 4, 2])[0])
-            used: set = set()
-            b = FOCUS[kind][0](ref, people, rng, used)
-            existing = b["existing"]
-            if kind != "same_weekday" and rng.random() < 0.4:
-                taken = {e["title"] for e in b["events"] + existing}
-                existing = existing + _unrelated_events(ref, people, rng, used, taken)
-            lo, hi = b["turns"]
-            sc = {
-                "type": kind,
-                "variant": b["variant"],
-                "ref_date": ref.isoformat(),
-                "participants": people,
-                "beats": b["beats"],
-                "must": b["must"],
-                "cues": b["cues"],
-                "says_confirm": b["says_confirm"],
-                "events": b["events"],
-                "existing_events": existing,
-                "style": rng.choice(STYLES),
-                "small_talk": rng.choice([t for t in SMALL_TALK if t]) if b["small_talk"] else None,
-                "agree_words": rng.sample(AGREE, 4),
-                "turns": rng.randint(lo, hi),
-                "min_turns": max(2, lo - 1),
-                "max_turns": hi + 3,
-                "start_minute": 0,
-                "gaps": [rng.randint(0, 4) for _ in range(40)],
-            }
-            if "shift" in b:
-                sc["shift"] = b["shift"]  # [how, old minute, new minute, step], for focus_errors
+            sc = _focus_scenario(rng, kind, FOCUS[kind][0])
+        if _clock_fits(sc, rng):
+            return sc
+
+
+def _focus_scenario(rng, kind: str, build) -> dict:
+    ref = dt.date(2026, 3, 1) + dt.timedelta(days=rng.randint(0, 305))
+    people = rng.sample(NAMES, 3 if kind == "same_weekday" else rng.choices([3, 4, 5], [4, 4, 2])[0])
+    used: set = set()
+    b = build(ref, people, rng, used)
+    existing = b["existing"]
+    if kind != "same_weekday" and rng.random() < 0.4:
+        taken = {e["title"] for e in b["events"] + existing}
+        existing = existing + _unrelated_events(ref, people, rng, used, taken)
+    lo, hi = b["turns"]
+    sc = {
+        "type": kind,
+        "variant": b["variant"],
+        "ref_date": ref.isoformat(),
+        "participants": people,
+        "beats": b["beats"],
+        "must": b["must"],
+        "cues": b["cues"],
+        "says_confirm": b["says_confirm"],
+        "events": b["events"],
+        "existing_events": existing,
+        "style": rng.choice(STYLES),
+        "small_talk": rng.choice([t for t in SMALL_TALK if t]) if b["small_talk"] else None,
+        "agree_words": rng.sample(AGREE, 4),
+        "turns": rng.randint(lo, hi),
+        "min_turns": max(2, lo - 1),
+        "max_turns": hi + 3,
+        "start_minute": 0,
+        "gaps": [rng.randint(0, 4) for _ in range(40)],
+    }
+    # shift: [how, old minute, new minute, step]; refer: how a time_shift names the event;
+    # apart: words that must be said outside the cue phrases (offline.py checks them)
+    sc |= {k: b[k] for k in ("shift", "refer", "apart") if k in b}
+    return sc
+
+
+FOCUS2 = {  # name → (type, builder, weight). Second batch: title-only changes, chosen constraint times
+    "title_shift": ("time_shift", _focus_title_shift, 160), "constraint_chosen": ("constraint", _focus_constraint_chosen, 60),
+}  # fmt: skip
+
+
+def make_focus2(rng: random.Random) -> dict:
+    """The second focus batch: time-only changes whose chat names the event by title (or title
+    + bare weekday) with the date only on the calendar, and constraint times that are then
+    proposed and chosen. Same shape as make_focus()."""
+    while True:
+        kind, build, _ = rng.choices(list(FOCUS2.values()), weights=[w for *_, w in FOCUS2.values()])[0]
+        sc = _focus_scenario(rng, kind, build)
         if _clock_fits(sc, rng):
             return sc
 
@@ -820,15 +929,19 @@ def focus_errors(sc: dict) -> list[str]:
     cue_times = set().union(set(), *(_times_in(c, ref) for c in cue_words))
     gold_dates = {e["date"] for e in events}
     gold_starts = {e["start"] for e in events if e["start"]}
-    if gold_dates - {m.date.isoformat() for m in mentions}:
+    # a date nobody says is still known if the calendar has it for a title the chat must say
+    on_calendar = {e["date"] for e in events for x in existing
+                   if (x["date"], x["title"]) == (e["date"], e["title"]) and e["title"] in sc["must"]}  # fmt: skip
+    if gold_dates - {m.date.isoformat() for m in mentions} - on_calendar:
         errs.append("a gold date is not in the must expressions")
     if {m.date.isoformat() for m in mentions if not m.tentative} - gold_dates - {e["date"] for e in existing}:
         errs.append("must has a date that is no event's date")
     if said_times - gold_starts - {e["start"] for e in existing if e["start"]}:
         errs.append("must has a time that is no event's time")
-    if cue_times & (gold_starts | said_times):
+    apart = sc.get("apart", [])  # said in a cue *and* on its own (offline.py checks the second)
+    if not apart and cue_times & (gold_starts | said_times):
         errs.append("constraint time is an event time or a must expression")
-    if any(m in c for m in squash(sc["must"]) for c in squash(cue_words)):
+    if any(m in c for m in squash([w for w in sc["must"] if w not in apart]) for c in squash(cue_words)):
         errs.append("a must expression is inside a cue, so check() can't tell it is missing")
     if not sc["says_confirm"] and any("확정" in x for x in sc["beats"] + cue_words):
         errs.append("확정 in beats")
@@ -844,6 +957,17 @@ def focus_errors(sc: dict) -> list[str]:
             errs.append("a hedge phrase reads as a date or time")
     elif kind == "time_shift":
         errs += _time_shift_errors(sc)
+    elif kind == "constraint" and variant.startswith("chosen"):
+        if not cue_times:
+            errs.append("constraint phrase has no time")
+        elif not events or statuses[-1] != "confirmed" or set(statuses[:-1]) - {"rejected"}:
+            errs.append(f"constraint gold {statuses}")
+        elif cue_times != {events[-1]["start"]}:
+            errs.append("the chosen time is not the constraint time")
+        elif any(e["start"] in cue_times for e in events[:-1]):
+            errs.append("the constraint time is also a dropped time")
+        elif len(apart) != 1 or _times_in(apart[0], ref) != cue_times or apart[0] not in sc["must"]:
+            errs.append("the constraint time is not proposed on its own")
     elif kind == "constraint":
         if not cue_times:
             errs.append("constraint phrase has no time")
@@ -866,6 +990,19 @@ def focus_errors(sc: dict) -> list[str]:
 
 def _time_shift_errors(sc: dict) -> list[str]:
     events, existing = sc["events"], sc["existing_events"]
+    ref = dt.date.fromisoformat(sc["ref_date"])
+    refer = sc.get("refer", "date")
+    title = events[0]["title"] if events else None
+    said_dates = {m.date for w in sc["must"] for m in parse(f"{w} 회의", ref) if m.date}
+    if refer == "title" and (said_dates or title not in sc["must"]):
+        return ["a title-only change must say the title and no date"]
+    if refer == "title_weekday":
+        day = sc["must"][0]
+        letter = day.removesuffix("요일").removesuffix("욜")
+        if len(letter) != 1 or letter not in WEEKDAYS or title not in sc["must"]:
+            return ["a title + weekday change must say a bare weekday and the title"]
+        if events and _date_of(day, ref) != dt.date.fromisoformat(events[0]["date"]):
+            return ["the weekday doesn't resolve to the calendar date"]
     how, old, new, step = sc["shift"]
     old_t, new_t = _clock(old).strftime("%H:%M"), _clock(new).strftime("%H:%M")
     if len(events) != 2 or len({e["date"] for e in events}) != 1 or len({e["title"] for e in events}) != 1:
@@ -882,7 +1019,8 @@ def _time_shift_errors(sc: dict) -> list[str]:
     if new - old != step or step == 0 or (how == "earlier") == (step > 0) and how != "change":
         errs.append(f"{how} by {step} min goes the wrong way")
     want = {"agree": ("rejected", "confirmed"), "short_agree": ("rejected", "confirmed"),
-            "refuse": ("confirmed", "rejected"), "pending": ("confirmed", "proposed")}[sc["variant"].split("_", 1)[1]]  # fmt: skip
+            "refuse": ("confirmed", "rejected"), "pending": ("confirmed", "proposed")}  # fmt: skip
+    want = next(v for k, v in want.items() if sc["variant"].endswith(k))
     if (by_start.get(old_t, {}).get("status"), by_start.get(new_t, {}).get("status")) != want:
         errs.append(f"time shift {sc['variant']} gold statuses")
     if want[0] == "confirmed" and by_start.get(old_t) != mine[0]:
