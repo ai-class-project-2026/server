@@ -65,6 +65,17 @@ def via_claude(req: ScheduleRequest, model: str) -> list[dict]:
     return [e.model_dump(mode="json") for e in resp.parsed_output.events]
 
 
+def check_alive(lines: list[str], rows: list[dict]):
+    """서버는 LLM이 꺼져 있거나 실패해도 200과 빈 목록을 돌려준다. 그대로 채점하면 오등록률이 0%로 좋게 나온다.
+    정답에는 일정이 있는데 답이 전부 비었으면 저장하지 않고 멈춘다. 일부만 실패한 건 여기서 알 수 없어서,
+    시간 제한(기본 30초)까지 기다렸다가 빈 답만 알려 준다 (서버 로그의 "schedule LLM failed"도 볼 것)."""
+    if any(json.loads(ln).get("events") for ln in lines) and not any(r["events"] for r in rows):
+        sys.exit("답이 전부 비어 있어서 저장하지 않았어요. SCHEDULE_LLM_URL과 LLM 서버가 켜져 있는지 확인해 주세요")
+    slow = sum(not r["events"] and r["latency_ms"] >= 29_000 for r in rows)
+    if slow:
+        print(f"주의: 30초 가까이 걸리고 빈 답 {slow}개. LLM 시간 초과일 수 있어요", file=sys.stderr)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("testset")
@@ -88,6 +99,7 @@ def main():
     fd, tmp = tempfile.mkstemp(dir=dst.parent, prefix=dst.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
+            rows = []
             for req in reqs:
                 via_claude.last_usage = None
                 t = time.perf_counter()
@@ -106,8 +118,11 @@ def main():
                             usage["input_tokens"] * args.price_in
                             + usage["output_tokens"] * args.price_out
                         ) / 1e6
+                rows.append(row)
                 f.write(json.dumps(row, ensure_ascii=False) + "\n")
                 print(f"{ms}ms {len(events)} events", file=sys.stderr)
+        if args.target == "server":
+            check_alive(lines, rows)
         os.replace(tmp, dst)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

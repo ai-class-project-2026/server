@@ -1,9 +1,10 @@
 """역할극 시나리오 카드 만들기 (기획서 8.6 ②, 파트 4 4주차).
 
-    uv run python eval/schedule/cards.py              # 카드 120장
-    uv run python eval/schedule/cards.py --n 20 --seed 7
+    uv run python eval/schedule/cards.py              # 실제 테스트셋 카드 R001~R120
+    uv run python eval/schedule/cards.py --set pilot  # 파일럿 카드 P001~P020 (8.6 ③ 비율 그대로)
+    uv run python eval/schedule/cards.py --set hard   # 약점 카드 H001~H024 (알려진 실수를 노림)
 
-결과 (data/schedule/real_test/cards/):
+결과 (아래 SETS의 폴더):
   cards.md     인쇄하거나 단톡에 나눠 줄 카드. 사람마다 자기 역할만 보면 된다
   cards.jsonl  카드 원본. import_chat.py가 기준일, 참여자, 기존 일정을 여기서 가져간다
 
@@ -29,6 +30,21 @@ TIMES = ["4시", "4시 반", "5시", "6시", "7시", "7시 반", "저녁 8시", 
 EXCUSES = ["학원", "병원 예약", "가족 약속", "알바", "동아리", "과외"]
 
 # 파일럿 비율(8.6 ③: 3/3/4/2/3/3/2)을 그대로 키운다. 20장 단위로 정확히 맞는다.
+# 카드 묶음: 번호 글자, 장수, seed, 카드 폴더, import_chat.py가 대화를 쌓는 파일
+SETS = {
+    "real": ("R", 120, 2026, "data/schedule/real_test/cards", "data/schedule/real_test/unlabeled.jsonl"),
+    "pilot": ("P", 20, 20, "data/schedule/pilot/cards", "data/schedule/pilot/unlabeled.jsonl"),
+    "hard": ("H", 24, 24, "data/schedule/real_test/hard_cards", "data/schedule/real_test/hard_unlabeled.jsonl"),
+}
+
+# 약점 카드에서 노리는 것과, 그 안에서 바꿔 가며 쓰는 흐름. 실수를 부르는 쪽과 그 반대쪽(지나치게 조심하는 실수)을 섞는다
+WEAK = {
+    "애매한 답": ["모두 애매", "모두 애매", "모두 애매", "한 명만 애매", "한 명만 애매", "섞임"],
+    "시각만 변경": ["변경", "변경", "변경", "변경", "보류", "보류"],
+    "그때까지 바쁨": ["괜찮음", "괜찮음", "미룸", "미룸", "결론 없음", "결론 없음"],
+    "같은 요일": ["요일만", "요일만", "요일만", "이번주", "이번주", "이번주"],
+}
+
 MIX = {
     "confirm": 3,
     "proposal_only": 3,
@@ -191,6 +207,101 @@ def make_card(cid: str, kind: str, rng: random.Random) -> dict:
     }
 
 
+def make_hard_card(cid: str, weak: str, flow: str, rng: random.Random) -> dict:
+    """약점 카드. type은 카드대로 흘러갔을 때의 예상일 뿐이고, 정답은 대화를 보고 정한다."""
+    ref = _ref(rng)
+    people = rng.sample(NAMES, rng.randint(3, 4))
+    lead, other, *rest = people
+    title, place = rng.choice(TITLES), rng.choice(PLACES)
+    day, time = _say_day(ref.date(), rng), rng.choice(TIMES)
+    existing = []
+    roles: dict[str, str] = {}
+    vague = "된다고도 안 된다고도 하지 말고 나중에 봐서 정하겠다는 식으로만 답하기 (말은 자기 식으로)"
+
+    if weak == "애매한 답":
+        situation = f"{title} 날짜를 물어봤는데 답이 시원하지 않다."
+        roles[lead] = f"{day} {time} 어떠냐고 물어보기. 확정 선언은 하지 않기"
+        roles[other] = vague
+        if flow == "모두 애매":
+            kind = "proposal_only"
+            for p in rest:
+                roles[p] = vague
+        elif flow == "한 명만 애매":
+            kind = "confirm"
+            roles[lead] = f"{day} {time} {place}에서 하자고 제안하기. 된다는 사람이 과반이면 '그럼 그때 보자'처럼 정리하기"
+            for p in rest:
+                roles[p] = "확실하게 된다고 하기"
+        else:
+            kind = "confirm"
+            roles[lead] = f"{day} {time} 제안하기. 모두 확실히 된다고 하면 그때 정리하기"
+            roles[other] = "처음에는 애매하게 답했다가, 조금 뒤에 확실히 된다고 하기"
+            for p in rest:
+                roles[p] = "확실하게 된다고 하기"
+    elif weak == "시각만 변경":
+        ex = _existing(ref.date(), rng, people)
+        existing = [ex]
+        d, hour = dt.date.fromisoformat(ex["date"]), int(ex["start"][:2]) - 12
+        new = rng.choice([h for h in (4, 5, 6, 7) if h != hour])
+        situation = f"캘린더에 이미 {_wd(d)}요일 {hour}시 {_josa(ex['title'], '이', '가')} 잡혀 있다. 날짜는 그대로 둔다."
+        if flow == "변경":
+            kind = "revise"
+            roles[lead] = f"{_wd(d)}요일 거 {_josa(f'{new}시', '으로', '로')} 시간만 바꾸자고 하기 ('취소'라는 말은 쓰지 않기)"
+            roles[other] = "좋다고 하기"
+            for p in rest:
+                roles[p] = "동의하기"
+        else:
+            kind = "proposal_only"
+            roles[lead] = f"{_wd(d)}요일 거 {_josa(f'{new}시', '으로', '로')} 시간만 바꿀 수 있냐고 물어보기. 혼자 정하지 않기"
+            roles[other] = "확인해 보고 말해 주겠다고만 하기"
+            for p in rest:
+                roles[p] = "답 안 하기 (대화에 참여 X)"
+    elif weak == "그때까지 바쁨":
+        busy = rng.choice([5, 6])
+        why = rng.choice(EXCUSES)
+        situation = f"{title} 시각을 정하는데 한 명이 {busy}시까지 바쁘다."
+        if flow == "괜찮음":
+            kind = "confirm"
+            roles[lead] = f"{day} {busy + 1}시 {place} 제안하기. 다들 되면 정리하기"
+            roles[other] = f"{busy}시까지 {why} 있다고 말하고, 제안한 시각은 된다고 하기. 새 시각을 제안하지는 않기"
+        elif flow == "미룸":
+            kind = "revise"
+            roles[lead] = f"{day} {busy - 1}시 제안하기. 안 되는 사람이 있으면 {_josa(f'{busy + 1}시', '으로', '로')} 늦추고 정리하기"
+            roles[other] = f"{busy}시까지 {why} 있다고만 말하기. 새 시각을 먼저 제안하지는 않기. 늦춰 주면 좋다고 하기"
+        else:
+            kind = "proposal_only"
+            roles[lead] = f"{day} {busy - 1}시 어떠냐고 물어보기. 안 되는 사람이 있으면 '그럼 다시 생각해 보자'로 끝내기"
+            roles[other] = f"{busy}시까지 {why} 있다고만 말하기. 새 시각을 제안하지는 않기"
+        for p in rest:
+            roles[p] = "답 안 하기 (대화에 참여 X)" if kind == "proposal_only" else "동의하기"
+    else:  # 같은 요일
+        kind = "relative_date"
+        ref = ref.replace(hour=12, minute=40)  # "오늘"이 아직 남아 있어야 이번주 쪽이 말이 된다
+        w = _wd(ref.date())
+        time = rng.choice(["5시", "6시", "7시", "7시 반"])
+        if flow == "요일만":
+            say = rng.choice([w, f"{w}요일"])
+            situation = f"오늘은 {w}요일이다. 오늘 말고 다음에 오는 {w}요일에 {_josa(title, '을', '를')} 하려고 한다."
+            roles[lead] = f"'{say} {time}'처럼 요일만 말해서 제안하기 ('다음주'라는 말, 날짜 숫자는 쓰지 않기)"
+        else:
+            say = f"이번주 {w}"
+            situation = f"오늘은 {w}요일이다. 오늘 {_josa(title, '을', '를')} 하려고 한다."
+            roles[lead] = f"'{say} {time}'처럼 말해서 제안하기 ('오늘'이라는 말, 날짜 숫자는 쓰지 않기)"
+        roles[other] = "좋다고 하기"
+        for p in rest:
+            roles[p] = "동의하기"
+
+    return {
+        "card_id": cid,
+        "type": kind,
+        "weakness": weak,
+        "ref_datetime": ref.strftime("%Y-%m-%dT%H:%M:00+09:00"),
+        "participants": people,
+        "situation": situation,
+        "roles": roles,
+        "existing_events": existing,
+    }
+
+
 def to_md(c: dict) -> str:
     ref = dt.datetime.fromisoformat(c["ref_datetime"])
     lines = [
@@ -209,18 +320,26 @@ def to_md(c: dict) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=120)
-    ap.add_argument("--seed", type=int, default=2026)
-    ap.add_argument("--out", default="data/schedule/real_test/cards")
+    ap.add_argument("--set", choices=SETS, default="real")
+    ap.add_argument("--n", type=int, help="real, pilot의 장수 (hard는 WEAK에 적힌 대로)")
+    ap.add_argument("--seed", type=int)
+    ap.add_argument("--out")
     args = ap.parse_args()
 
-    rng = random.Random(args.seed)
-    unit = [k for k, w in MIX.items() for _ in range(w)]  # 20장 묶음
-    kinds = (unit * (args.n // len(unit) + 1))[: args.n]
-    rng.shuffle(kinds)
-    cards = [make_card(f"R{i + 1:03d}", k, rng) for i, k in enumerate(kinds)]
+    letter, n, seed, folder, _ = SETS[args.set]
+    n = n if args.n is None else args.n
+    rng = random.Random(seed if args.seed is None else args.seed)
+    if args.set == "hard":
+        plan = [(w, f) for w, flows in WEAK.items() for f in flows]
+        rng.shuffle(plan)
+        cards = [make_hard_card(f"{letter}{i + 1:03d}", w, f, rng) for i, (w, f) in enumerate(plan)]
+    else:
+        unit = [k for k, w in MIX.items() for _ in range(w)]  # 20장 묶음
+        kinds = (unit * (n // len(unit) + 1))[:n]
+        rng.shuffle(kinds)
+        cards = [make_card(f"{letter}{i + 1:03d}", k, rng) for i, k in enumerate(kinds)]
 
-    out = Path(args.out)
+    out = Path(args.out or folder)
     out.mkdir(parents=True, exist_ok=True)
     with (out / "cards.jsonl").open("w", encoding="utf-8") as f:
         for c in cards:
@@ -229,7 +348,8 @@ def main():
     md += [to_md(c) for c in cards]
     (out / "cards.md").write_text("\n".join(md), encoding="utf-8")
 
-    counts = {k: kinds.count(k) for k in MIX}
+    key, names = ("weakness", WEAK) if args.set == "hard" else ("type", MIX)
+    counts = {k: sum(c[key] == k for c in cards) for k in names}
     print(f"{len(cards)}장 → {out}/cards.md, cards.jsonl  {counts}")
 
 

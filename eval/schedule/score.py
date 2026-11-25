@@ -4,6 +4,7 @@
     python eval/schedule/score.py --demo        # 채점 코드 자체 검사
 
 gold line: a record with "events" (and optional "type"); pred line: {"events": [...]}
+정답에 "weakness"가 있으면(hard.jsonl) type 대신 "약점: ..."으로 묶어서 약점마다 점수를 낸다.
 (run.py가 남기는 "latency_ms", "usage", "cost_usd"가 있으면 같이 집계한다).
 Prints the metrics and appends a row to eval/reports/schedule.csv (dashboard input)
 and one row per type to eval/reports/schedule_by_type.csv.
@@ -156,7 +157,8 @@ def score(golds: list[dict], preds: list[dict]) -> dict:
             if (_time_key(p["events"][i]), p["events"][i]["date"], p["events"][i]["status"])
             == (_time_key(b), b["date"], b["status"])
         ]
-        for t in (tot, by_type[g.get("type", "all")]):
+        group = f"약점: {g['weakness']}" if g.get("weakness") else g.get("type", "all")
+        for t in (tot, by_type[group]):
             t["n"] += 1
             t["tp"] += sum(a["status"] == "confirmed" for a, _ in full)
             t["pred"] += len(pc)
@@ -239,6 +241,9 @@ def _demo():
     assert m["by_type"]["cancel"]["confirmed_f1"] is None
     assert m["by_type"]["cancel"]["cancel_recall"] == 0.0
     assert run([cx], [cx], typ="cancel")["by_type"]["cancel"]["cancel_recall"] == 1.0
+    # 5-2) weakness가 있으면 type 대신 약점으로 묶는다
+    golds = [{"type": "confirm", "weakness": "애매한 답", "events": [ok]}, {"type": "confirm", "events": [ok]}]
+    assert set(score(golds, [{"events": []}] * 2)["by_type"]) == {"약점: 애매한 답", "confirm"}
     # 6) 지연시간, 토큰, 비용 집계
     extra = {"latency_ms": 100, "usage": {"input_tokens": 10, "output_tokens": 5}, "cost_usd": 0.002}
     m = score([{"events": [ok]}] * 2, [{"events": [ok], **extra}, {"events": [ok], **extra, "latency_ms": 300}])

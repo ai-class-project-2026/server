@@ -4,7 +4,10 @@
     uv run python eval/schedule/import_chat.py R001 chat.txt --rename "철수=지민,영희=유나"
 
 카드(cards.jsonl)에서 type, 기준일, 참여자, 기존 일정을 가져와 붙이고
-data/schedule/real_test/unlabeled.jsonl 끝에 한 줄 추가한다.
+아래 파일 끝에 한 줄 추가한다. 어느 파일인지는 카드 번호의 첫 글자로 정해진다 (cards.py의 SETS).
+  R001...: data/schedule/real_test/unlabeled.jsonl        (실제 테스트셋)
+  P001...: data/schedule/pilot/unlabeled.jsonl            (파일럿)
+  H001...: data/schedule/real_test/hard_unlabeled.jsonl   (약점)
 "events"는 비어 있다. 라벨러 두 명이 이 파일을 각자 복사해서
 (labels_a.jsonl, labels_b.jsonl) guideline.md대로 채운다.
 
@@ -26,8 +29,10 @@ import re
 import sys
 from pathlib import Path
 
-CARDS = Path("data/schedule/real_test/cards/cards.jsonl")
-OUT = Path("data/schedule/real_test/unlabeled.jsonl")
+from cards import SETS  # 같은 폴더의 cards.py
+
+# 카드 번호 첫 글자 → (카드 파일, 대화를 쌓는 파일)
+PLACES = {letter: (f"{folder}/cards.jsonl", out) for letter, _, _, folder, out in SETS.values()}
 
 # 시각: "오후 9:05" 또는 영어 로케일 "9:05 PM"
 TIME = r"(?:(?:오전|오후) \d{1,2}:\d{2}|\d{1,2}:\d{2} [AaPp][Mm])"
@@ -180,10 +185,12 @@ def main():
     ap.add_argument("card_id")
     ap.add_argument("chat")
     ap.add_argument("--rename", default="", help='닉네임 바꾸기, 예: "철수=지민,영희=유나"')
-    ap.add_argument("--cards", default=str(CARDS))
-    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--cards", help="기본: 카드 번호 첫 글자로 정한다")
+    ap.add_argument("--out", help="기본: 카드 번호 첫 글자로 정한다")
     args = ap.parse_args()
 
+    cards_default, out_default = PLACES.get(args.card_id[:1], PLACES["R"])
+    args.cards, args.out = args.cards or cards_default, args.out or out_default
     cards = {c["card_id"]: c for c in map(json.loads, Path(args.cards).read_text(encoding="utf-8").splitlines())}
     card = cards.get(args.card_id)
     if card is None:
@@ -223,6 +230,7 @@ def main():
     record = {
         "card_id": card["card_id"],
         "type": card["type"],
+        **({"weakness": card["weakness"]} if "weakness" in card else {}),
         "ref_datetime": card["ref_datetime"],
         "participants": card["participants"],
         "dialogue": turns,

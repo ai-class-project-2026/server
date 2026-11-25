@@ -8,7 +8,8 @@
 검사하는 것: 날짜 형식, 요일이 날짜와 맞는지, status 값, start가 HH:MM인지,
 start와 time_text를 같이 적지 않았는지, 참석/불참이 참여자 안에 있는지,
 확정 일정이 기준일보다 과거가 아닌지(8.3 제외 대상), type 값,
-확정 일정의 참석+불참이 참여자 전체와 딱 맞는지, type과 status가 서로 맞는지.
+확정 일정의 참석+불참이 참여자 전체와 딱 맞는지, type과 status가 서로 맞는지,
+같은 card_id가 두 번 나오지 않는지. 끝에 type별(약점 카드는 weakness별) 개수를 보여 준다.
 두 라벨러 비교는 일정의 모든 칸을 보고, 참석/불참 이름은 순서를 무시한다.
 """
 
@@ -17,6 +18,7 @@ import datetime as dt
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 WD = "월화수목금토일"
@@ -54,6 +56,8 @@ def problems(rec: dict) -> list[str]:
     kind = rec.get("type")
     if not isinstance(kind, str) or kind not in TYPES:
         out.append(f"type이 이상함: {kind!r}")
+    if rec.get("weakness") is not None and not isinstance(rec["weakness"], str):
+        out.append(f"weakness는 문자열이어야 함: {rec['weakness']!r}")
     ref = None
     try:
         when = dt.datetime.fromisoformat(rec["ref_datetime"])
@@ -173,6 +177,14 @@ def main():
             for p in _safe_problems(rec):
                 count += 1
                 print(f"{path}:{n} {rec.get('card_id', '')} {p}")
+        ids = Counter(r["card_id"] for r in recs if isinstance(r.get("card_id"), str))
+        for cid in [c for c, k in ids.items() if k > 1]:
+            count += 1
+            print(f"{path}: card_id {cid} 줄이 {ids[cid]}개 있음")
+        for field in ("type", "weakness"):
+            kinds = Counter(str(r[field]) for r in recs if r.get(field))
+            if kinds:
+                print(f"{path}: {field}별 " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
         print(f"{path}: {len(recs)}줄 검사, 문제 {count}개")
         return recs, count
 
