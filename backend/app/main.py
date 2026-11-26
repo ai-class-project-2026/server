@@ -62,7 +62,7 @@ app.add_middleware(  # 마지막에 추가한 것이 가장 바깥: 413 응답�
     allow_headers=["*"],
 )
 for r in (auth, workspaces, chat, calendar, ai):
-    app.include_router(r.router)
+    app.include_router(r.router, prefix=settings.api_prefix)
 
 
 def _unprocessable(detail: str) -> JSONResponse:

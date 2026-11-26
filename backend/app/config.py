@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # 키가 비어 있어도 /moderate, /schedule을 열어 두려면 1 (개발용: make dev 에서만 켠다)
     allow_open_ai_api: bool = False
     max_body_bytes: int = 1_048_576  # 요청 본문 최대 크기(1MiB). 넘으면 413
+    # 모든 경로 앞에 붙는 말. 웹과 같은 도메인에서 /api 로 나눠 배포할 때 "/api" (개발에서는 비운다)
+    api_prefix: str = ""
     # Schedule LLM behind an OpenAI-compatible server (llama.cpp, vLLM, Ollama...).
     # Empty = schedule AI off; chat still works.
     schedule_llm_url: str = ""
