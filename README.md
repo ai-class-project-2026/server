@@ -70,7 +70,7 @@ AI 일정 분석은 AI를 **켠 시각 이후**의 메시지만 본다(`workspac
 
 ## 흐름
 
-메시지 POST → `moderation.moderate()` → 저장 → WS로 `message` → (AI 켜진 워크스페이스면) 10초 디바운스 또는 5턴마다 `schedule/pipeline.run()` → trigger → dateparse_ko 주석 → LLM(tracker) → reconcile → 중복 아닌 것만 WS로 `suggestion`.
+메시지 POST → `moderation.moderate()` → 저장 → WS로 `message` → (AI 켜진 워크스페이스면) 대화가 10초 멈췄을 때 `schedule/pipeline.run()` → trigger → dateparse_ko 주석 → LLM(tracker) → reconcile → 중복 아닌 것만 WS로 `suggestion`.
 
 | 위치 | 담당 |
 |---|---|
