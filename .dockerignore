@@ -1,0 +1,7 @@
+.git
+.venv
+.env
+app.db*
+data
+ai-sessions
+**/__pycache__
