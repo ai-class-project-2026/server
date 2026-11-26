@@ -10,17 +10,15 @@ from fastapi import (
     WebSocket,
     status,
 )
-from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.exc import IntegrityError
 
-from app import auth
+from app import auth, moderation_client
 from app.auth import CurrentUser
 from app.db import session as db
 from app.db.models import Channel, Message, Report, User, Workspace
 from app.deps import Session, get_owned, require_member
-from app.moderation import moderate
 from app.realtime import Conn, hub
 from app.schedule import pipeline
 from app.schemas import ChannelIn, ChannelOut, MessageIn, MessageOut, ReportIn
@@ -111,8 +109,8 @@ async def send_message(
             .limit(3)
         )
     )[::-1]
-    # Moderate before saving (plan 10.1); CPU-bound model → thread pool.
-    res = await run_in_threadpool(moderate, body.text, context, ws.filter_level)
+    # Moderate before saving (plan 10.1): 모델 서버가 있으면 거기서, 없거나 답이 없으면 이 서버 안에서.
+    res = await moderation_client.check(body.text, context, ws.filter_level)
     msg = Message(
         channel_id=channel_id,
         user_id=user_id,

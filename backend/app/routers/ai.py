@@ -38,7 +38,7 @@ router = APIRouter(tags=["ai"], dependencies=[Depends(_api_key)])
 
 @router.post("/moderate", response_model=ModerateResponse)
 async def moderate_api(body: ModerateRequest):
-    r = await run_in_threadpool(moderate, body.text, body.context)
+    r = await run_in_threadpool(moderate, body.text, body.context, body.level)
     return ModerateResponse(
         is_profane=r.is_profane,
         score=r.score,

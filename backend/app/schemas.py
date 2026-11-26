@@ -252,6 +252,7 @@ class ModerateRequest(BaseModel):
     # 일정 API(DialogueTurn.text)와 같은 4,000자: Discord 니트로 메시지도 검사할 수 있어야 한다
     text: str = Field(max_length=4000)
     context: list[Annotated[str, Field(max_length=4000)]] = Field(default=[], max_length=10)  # 채팅은 3개를 쓴다
+    level: int = Field(2, ge=1, le=3)  # 민감도 (워크스페이스 filter_level과 같은 값)
 
 
 class ModerateResponse(BaseModel):

@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     schedule_debounce_seconds: float = 10
     # Exported KcELECTRA (part 3). Empty = dictionary filter only.
     moderation_onnx_path: str = ""
+    # 욕설 판정을 맡길 모델 서버 (같은 코드를 띄운 서버의 주소, 예: http://100.x.x.x:8765). 비우면 이 서버 안에서 판정.
+    # 답이 없으면 이 서버 안에서 판정한다 (app/moderation_client.py)
+    moderation_url: str = ""
+    moderation_api_key: str = ""  # 그 서버의 AI_API_KEY
+    moderation_timeout: float = 3
 
 
 settings = Settings()
