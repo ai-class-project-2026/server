@@ -1,6 +1,6 @@
 # AI 작업 지침 (server)
 
-팀플메이트 백엔드 + AI 레포. FastAPI, SQLAlchemy(async), SQLite, Alembic. 기획서: https://github.com/ai-class-project-2026/plan
+harmony 백엔드 + AI 레포. FastAPI, SQLAlchemy(async), SQLite, Alembic. 기획서: https://github.com/ai-class-project-2026/plan
 
 ## 파트별 담당
 

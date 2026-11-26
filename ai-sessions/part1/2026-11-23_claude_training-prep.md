@@ -145,11 +145,11 @@ LoRA 병합과 GGUF 변환 스크립트도 레포에 없어서 직접 실행하�
 
 ```sh
 # 내 Mac에서 업로드
-hf upload <계정>/teamplmate-data data/schedule/synth/train.jsonl schedule/synth/train.jsonl --repo-type dataset --private
-hf upload <계정>/teamplmate-data data/moderation/train.jsonl moderation/train.jsonl --repo-type dataset --private
+hf upload <계정>/harmony-data data/schedule/synth/train.jsonl schedule/synth/train.jsonl --repo-type dataset --private
+hf upload <계정>/harmony-data data/moderation/train.jsonl moderation/train.jsonl --repo-type dataset --private
 
 # 나중에 pod의 server 폴더에서 다운로드
-hf download <계정>/teamplmate-data --repo-type dataset --local-dir data
+hf download <계정>/harmony-data --repo-type dataset --local-dir data
 ```
 
 이렇게 하면 파일이 스크립트가 기대하는 경로에 그대로 들어갑니다. 그래도 일정 데이터를 git으로 관리하고 싶으면 말씀해 주세요. 기획서와 `.gitignore`를 함께 고칠게요.

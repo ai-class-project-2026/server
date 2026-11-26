@@ -1,6 +1,6 @@
 # server
 
-팀플메이트 백엔드. FastAPI + SQLAlchemy(async, aiosqlite) + Alembic, DB는 SQLite.
+harmony 백엔드. FastAPI + SQLAlchemy(async, aiosqlite) + Alembic, DB는 SQLite.
 
 ## 실행
 

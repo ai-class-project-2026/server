@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Schedule LLM behind an OpenAI-compatible server (llama.cpp, vLLM, Ollama...).
     # Empty = schedule AI off; chat still works.
     schedule_llm_url: str = ""
-    schedule_llm_model: str = "teamplmate-schedule"
+    schedule_llm_model: str = "harmony-schedule"
     schedule_model_version: str = "v0"
     schedule_llm_timeout: float = 30  # runs in the background, but keep demos snappy
     schedule_debounce_seconds: float = 10

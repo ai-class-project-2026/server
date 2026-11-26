@@ -52,7 +52,7 @@ class BodyLimitMiddleware:
             await too_big(scope, receive, send)
 
 
-app = FastAPI(title="teamplmate")
+app = FastAPI(title="harmony")
 app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_body_bytes)
 app.add_middleware(  # 마지막에 추가한 것이 가장 바깥: 413 응답에도 CORS 헤더가 붙는다
     CORSMiddleware,
