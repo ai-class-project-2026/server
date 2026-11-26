@@ -64,6 +64,17 @@ def default_hits(text: str) -> tuple[tuple[int, int, str, str], ...]:
 
 
 @cache
+def joined_whitelisted(text: str) -> bool:
+    """화이트리스트가 풀어 준 말 가운데 원문의 띄어쓰기를 지워서 생긴 것이 있는가?
+    "수박 씨 발아 실험"은 True ("씨 발" → "씨발"), "시발점"과 "시발!점"은 False."""
+    norm, index_map, end_map = normalize.normalize_with_ends(text)
+    return any(
+        any(c.isspace() for c in text[index_map[s] : end_map[e - 1]])
+        for s, e in dict_filter.whitelisted(norm)
+    )
+
+
+@cache
 def hits(text: str) -> tuple[tuple[int, int, str], ...]:
     """후보 읽기에서 걸린 (원문 시작, 원문 끝, 단어). 자음 자모가 없으면 읽을 필요가 없어요."""
     # 전각 "１", "｜"나 반각 자모는 읽기 전에 접혀서 글자가 돼요. 건너뛸지는 접힌 글로 정해요.

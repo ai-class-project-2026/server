@@ -59,6 +59,17 @@ def _find(norm: str, groups: dict[str, list[str]]) -> list[tuple[int, int, str]]
     )
 
 
+def whitelisted(norm: str) -> list[tuple[int, int]]:
+    """화이트리스트가 풀어 준 사전 낱말의 위치 ("씨발아 실험"의 "씨발", "시발점"의 "시발")."""
+    allowed = list(_scan(norm, _WHITE))
+    return [
+        (s, e)
+        for groups in (_BAD, _AMBIGUOUS)
+        for s, e, _ in _scan(norm, groups)
+        if any(a <= s and e <= b for a, b, _ in allowed)
+    ]
+
+
 def find(norm: str) -> list[tuple[int, int]]:
     """정규화된 문장에서 certain 욕설의 위치. 화이트리스트 안에 있는 것은 빼요."""
     return [(s, e) for s, e, _ in _find(norm, _BAD)]

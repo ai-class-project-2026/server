@@ -86,6 +86,13 @@ def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationRe
     # ambiguous 단어("새끼", "꺼져")는 멀쩡한 말일 수도 있어요: 모델이 판단하고,
     # 가리는 위치는 사전이 찾은 곳이에요. certain 단어는 늘 가려요.
     score = _model_score(text, norm, context)
+    # 띄어쓰기를 지워서 욕처럼 보이게 된 말을 화이트리스트가 풀어 줬으면("수박 씨 발아 실험" →
+    # "씨발아 실험"), 붙여 읽은 글에는 "씨발"이 그대로 보여서 모델이 욕이라고 하고 글 전체가
+    # 가려져요. 이런 글은 원문 그대로도 한 번 더 읽혀서, 두 번 다 욕이라고 할 때만 욕으로 봐요.
+    if score is not None and candidate.joined_whitelisted(text):
+        raw_score = _model_score(text, text, context)
+        if raw_score is not None:
+            score = min(score, raw_score)
     if score is not None and ambiguous:
         # 긴 글은 뒤가 잘려서 모델이 못 봐요. 모델이 못 본 곳의 ambiguous 단어는 모델이
         # 판단할 수 없으니, 모델이 없을 때처럼 certain으로 다뤄서 가려요.
