@@ -13,6 +13,9 @@ from app.schedule.prompt import WEEKDAYS, build_messages, to_kst
 from app.schemas import ScheduleEvent, ScheduleRequest
 
 log = logging.getLogger(__name__)
+# 답 길이 상한. 모델이 같은 일정을 끝없이 되풀이하면 타임아웃까지 GPU를 붙잡으므로 여기서 끊는다 (잘린 답은 JSON이 깨져 카드 없음).
+# ponytail: 고정값. 정상 답은 일정 4~5개, 340토큰 안팎이었다. 한 번에 일정 8개 넘게 뽑아야 하면 올릴 것.
+MAX_TOKENS = 700
 _transport = None  # tests swap in httpx.MockTransport
 
 
@@ -33,6 +36,7 @@ async def track(req: ScheduleRequest, dropped: list | None = None) -> list[Sched
                     "model": settings.schedule_llm_model,
                     "messages": messages,
                     "temperature": 0,
+                    "max_tokens": MAX_TOKENS,
                     "response_format": {"type": "json_object"},
                 },
             )
@@ -126,4 +130,9 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
     got, dropped = asyncio.run(track(req, out := [])), out
     assert [e.date for e in got] == [dt.date(2026, 11, 30)] == [e.date for e in asyncio.run(track(req))], got  # 넘기지 않으면 지금과 같다
     assert [(e.date, why) for e, why in dropped] == [(dt.date(2026, 11, 1), "date is before the reference date")], dropped
+    # 반복 폭주 막기: 요청에 출력 상한이 실리고, 상한에 걸려 잘린 답은 카드 없음이 된다
+    sent = []
+    cut = json.dumps({"events": [new] * 3})[:-20]
+    _transport = httpx.MockTransport(lambda r: (sent.append(json.loads(r.content)), httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"content": cut}}]}))[1])
+    assert asyncio.run(track(req)) == [] and sent[0]["max_tokens"] == MAX_TOKENS, sent
     print("ok")
