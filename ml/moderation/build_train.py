@@ -216,7 +216,7 @@ def main():
         link(r["text"], r["text"])
     rows, unsafe = {}, 0
     for r in kept:
-        context = r.get("context", [])
+        context = r["context"]
         for text in [r["text"], *augment(r["text"], rng, N_AUG)]:
             if held_out(text):  # never train on the test sets
                 continue

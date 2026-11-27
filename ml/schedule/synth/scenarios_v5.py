@@ -29,6 +29,7 @@ import random
 
 from dateparse_ko import parse
 from scenarios import AGREE, HEDGES, NON_NUMERIC, SMALL_TALK, STYLES, WEEKDAYS, _clock, _date_of, _say_clock, _say_date
+from scenarios import _need as need, _times_in as times_in
 
 NAMES = """민준 서연 지호 하은 도윤 서준 지우 예린 현우 수아 시우 하린 주원 지민 건우 유나 준서 채원 은우 소율
 태윤 다은 승현 나연 연우 윤서 재민 가은 민재 아린 규리 한결 소윤 정우 다인 시온 예준 로아 태오 서아 지안 하람
@@ -55,16 +56,8 @@ PAUSE_ACTS = {"propose", "counter", "agree", "object", "hedge", "absent", "back"
 OPEN_TONE = ["한두 글자로", "짧게", "", "", "이모티콘 느낌으로 짧게", "이유를 짧게 붙여서"]
 
 
-def need(n: int) -> int:
-    return n // 2 + 1
-
-
 def _hm(minutes: int) -> str:
     return _clock(minutes).strftime("%H:%M")
-
-
-def times_in(text: str, ref: dt.date) -> set[str]:
-    return {m.time.strftime("%H:%M") for m in parse(text, ref) if m.time}
 
 
 # ── building a scenario ──────────────────────────────────────────────────────
@@ -344,9 +337,8 @@ def state(sc: dict, upto: int, loose: bool) -> tuple[list[dict], dict]:
         f["location"] = c["pending"][0] if loose and c["pending"] else c["loc"]
         return f
 
-    def note(c, base=None):
-        late = ", ".join(f"{p} {m}분 늦게 합류" for p, m in c["late"].items())
-        return late or base
+    def note(c):
+        return ", ".join(f"{p} {m}분 늦게 합류" for p, m in c["late"].items()) or None
 
     def live(c, status):
         absent = sorted(c["absent"], key=people.index)
@@ -387,7 +379,7 @@ def state(sc: dict, upto: int, loose: bool) -> tuple[list[dict], dict]:
             late = ", ".join(f"{p} {m}분 늦게 합류" for p, m in base_late.items()) or e["note"]
             out.append(_ev(e, "confirmed", [p for p in people if p not in base_absent], absent, late))
         out += [_ev(fields(g), "rejected") if g["rejected"] else live(g, "proposed") for g in moves]
-    return out, {k: c for k, c in cands.items()}
+    return out, cands
 
 
 def instruction_events(sc: dict, who: str, op: dict) -> list[dict]:
@@ -403,7 +395,7 @@ def instruction_events(sc: dict, who: str, op: dict) -> list[dict]:
     e = existing[op.get("i", 0)]
     if kind == "cancel":
         return [_ev(e, "cancelled", e["attendees"], e["absent"], e["note"])]
-    f = dict(e) | {k: v for k, v in op.get("set", {}).items()}
+    f = e | op.get("set", {})
     absent = list(e["absent"])
     late = e["note"]
     if kind in ("absent", "back", "late"):

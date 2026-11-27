@@ -14,6 +14,7 @@ eval/schedule/score.py and train_lora.py read.
 
 import argparse
 import collections
+import copy
 import datetime as dt
 import json
 import os
@@ -288,8 +289,6 @@ def demo():
 def _focus_run(make, seed: int, n: int, by_kind: dict) -> collections.Counter:
     """n scenarios from make(): the make() checks, focus_errors(), and agrees() on the gold.
     Keeps the first scenario of each variant in by_kind for the mutation tests."""
-    import copy
-
     rng, counts = random.Random(seed), collections.Counter()
     for _ in range(n):
         sc = make(rng)
@@ -320,8 +319,6 @@ def _focus_run(make, seed: int, n: int, by_kind: dict) -> collections.Counter:
 def focus_demo():
     """scenarios.make_focus() and make_focus2(): the checks above, plus focus_errors() on every
     gold, and proof that focus_errors() and agrees() reject golds and answers that are wrong."""
-    import copy
-
     by_kind = {}
     counts = _focus_run(scenarios.make_focus, 1, 3000, by_kind)
     assert {"hedge", "time_shift", "constraint", "same_weekday"} <= set(counts), counts

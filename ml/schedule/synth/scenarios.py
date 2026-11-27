@@ -925,8 +925,8 @@ def focus_errors(sc: dict) -> list[str]:
     squash = lambda xs: [x.replace(" ", "") for x in xs]  # noqa: E731
     cue_words = [c for alts in sc["cues"] for c in alts]
     mentions = [m for w in sc["must"] for m in parse(f"{w} 회의", ref) if m.date]
-    said_times = set().union(set(), *(_times_in(w, ref) for w in sc["must"]))
-    cue_times = set().union(set(), *(_times_in(c, ref) for c in cue_words))
+    said_times = set().union(*(_times_in(w, ref) for w in sc["must"]))
+    cue_times = set().union(*(_times_in(c, ref) for c in cue_words))
     gold_dates = {e["date"] for e in events}
     gold_starts = {e["start"] for e in events if e["start"]}
     # a date nobody says is still known if the calendar has it for a title the chat must say

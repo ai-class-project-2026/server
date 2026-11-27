@@ -38,7 +38,7 @@ import generate  # noqa: E402  (sets up the backend/ and ml/common import paths)
 import scenarios_v5 as S  # noqa: E402
 from app.schemas import ScheduleEvent  # noqa: E402
 from dateparse_ko import parse  # noqa: E402
-from offline import _ids, _refuse_overwrite, keeps_moved_time, read_jsonl, write_jsonl  # noqa: E402
+from offline import _ids, _refuse_overwrite, _split, keeps_moved_time, read_jsonl, write_jsonl  # noqa: E402
 
 PROMPT = """너는 {setting} 대화를 쓰는 작가야. 실제 애들이 친 것처럼 써.
 - 기준일: {ref}({weekday}). 대화는 이날 하루 안에서 일어남
@@ -106,7 +106,7 @@ def to_prompt(sc: dict) -> str:
     )  # fmt: skip
 
 
-def _introduced(sc: dict) -> list[tuple[set, set]]:
+def _introduced(sc: dict) -> list[tuple[set, set, set]]:
     """Per beat: (dates, time phrases, start values) that beat says for the first time. A
     prefix cut before that beat must not contain them."""
     seen_dates = {e["date"] for e in sc["existing_events"]} | set(sc["extra_dates"])
@@ -310,10 +310,9 @@ def dump(args) -> None:
     write_jsonl(private / "scenarios.jsonl", ({"id": i, "scenario": sc} for i, sc in zip(ids, todo)))
     order = list(zip(ids, todo))
     random.Random(secrets.randbits(64)).shuffle(order)
-    size = -(-len(order) // args.batches)
-    for k, pack in enumerate(packs):
+    for pack, part in zip(packs, _split(order, args.batches)):
         pack.mkdir(parents=True)
-        write_jsonl(pack / "input.jsonl", ({"id": i, "prompt": to_prompt(sc)} for i, sc in order[k * size : (k + 1) * size]))
+        write_jsonl(pack / "input.jsonl", ({"id": i, "prompt": to_prompt(sc)} for i, sc in part))
         _copy_brief(args.brief, "WRITER.md", pack)
     kinds = collections.Counter(sc["type"] for sc in todo)
     print(f"{len(todo)} scenarios (seed {args.seed}) → {private / 'scenarios.jsonl'}")

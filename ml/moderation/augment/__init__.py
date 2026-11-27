@@ -12,11 +12,7 @@ from .similar_sound import _join, _split, is_syllable, similar_sound
 
 def insert_digit(text: str, rng: random.Random) -> str:
     """시발 → 시1발 (a digit between two hangul syllables)."""
-    spots = [
-        i
-        for i in range(1, len(text))
-        if "가" <= text[i - 1] <= "힣" and "가" <= text[i] <= "힣"
-    ]
+    spots = _gaps(text)
     if not spots:
         return text
     i = rng.choice(spots)
