@@ -39,7 +39,7 @@ router = APIRouter(tags=["ai"], dependencies=[Depends(_api_key)])
 
 @router.post("/moderate", response_model=ModerateResponse)
 async def moderate_api(body: ModerateRequest):
-    r = await run_in_threadpool(moderate, body.text, body.context, body.level)
+    r = await run_in_threadpool(moderate, body.text, body.context, body.level, body.names)
     return ModerateResponse(**asdict(r))
 
 

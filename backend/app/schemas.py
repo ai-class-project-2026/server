@@ -270,6 +270,7 @@ class ModerateRequest(BaseModel):
     text: str = Field(max_length=4000)
     context: list[Annotated[str, Field(max_length=4000)]] = Field(default=[], max_length=10)  # 채팅은 3개를 쓴다
     level: int = Field(2, ge=1, le=3)  # 민감도 (워크스페이스 filter_level과 같은 값)
+    names: NameList = []  # 워크스페이스 멤버 이름: 이름에 붙여 쓴 욕("강상우보지")을 사전이 찾는다
 
 
 class ModerateResponse(BaseModel):
