@@ -322,8 +322,11 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
             words.pop(0)
         while words and words[-1] in _PARTICLES | _FILLER:
             words.pop()
-        if words and len(words[-1]) >= 3 and words[-1][-1] in "을를":  # "회의를 잡아줘" → 회의
-            words[-1] = words[-1][:-1]
+        # "회의를 잡아줘" → 회의. 을은 받침 있는 글자 뒤, 를은 받침 없는 글자 뒤에만 붙는다: "축제마을"의 을은 낱말의 일부다
+        if words and len(w := words[-1]) >= 3 and w[-1] in "을를" and not (
+            "가" <= w[-2] <= "힣" and ((ord(w[-2]) - 0xAC00) % 28 != 0) != (w[-1] == "을")
+        ):
+            words[-1] = w[:-1]
         if title := " ".join(words)[:100].strip(" ,.!?~"):
             out["title"] = title
     return out
@@ -364,6 +367,8 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
     assert rules("장소는 도서관으로 ㅋㅋㅋㅋㅋㅋㅋㅋ 진짜 웃기다 ㅋㅋㅋ", members, today, card) == {"location": "도서관"}
     assert rules("장소는 도서관으로 ㅋㅋㅋ", members, today) == {"location": "도서관"}  # 웃음은 제목도 아니다
     assert rules("ㅋㅋㅋ", members, today) == {} and rules("ㅠㅠ ㅎㅎ~", members, today) == {}  # 추가 창에서도 웃음만으로는 초안이 없다
+    for said, title in (("축제마을", "축제마을"), ("모임을 잡아줘", "모임"), ("회의를 잡아줘", "회의"), ("서울을", "서울"), ("MT를", "MT")):
+        assert rules(said, members, today) == {"title": title}, said  # 을/를은 조사일 때만 뗀다
     assert rules("내일 7시 팀 회의 ㅋㅋ", members, today) == {"date": dt.date(2026, 11, 27), "start": dt.time(19), "title": "팀 회의"}
     assert rules("장소는 어딘가", members, today, card) == {}
     assert rules("장소는 도서관 8시로", members, today, card) == {"location": "도서관", "time_text": "8시"}  # 장소 뒤의 시각도 읽는다
