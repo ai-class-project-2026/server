@@ -195,6 +195,8 @@ class Report(Base):
     message_id: Mapped[int] = _fk("messages.id")
     user_id: Mapped[int] = _fk("users.id")
     type: Mapped[ReportType] = mapped_column(_enum(ReportType))
+    # 신고한 때의 메시지 글. 신고만 꺼내도 무슨 말이 신고됐는지 알 수 있다.
+    text: Mapped[str | None]
     created_at: Mapped[dt.datetime] = _now()
 
 

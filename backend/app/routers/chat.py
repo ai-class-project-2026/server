@@ -212,11 +212,11 @@ async def channel_socket(websocket: WebSocket, channel_id: int):
 @router.post("/reports", status_code=201)
 async def report(body: ReportIn, user: CurrentUser, session: Session) -> dict[str, int]:
     """False positive / missed profanity → retraining data (plan 9)."""
-    await get_owned(session, Message, body.message_id, user)
+    message = await get_owned(session, Message, body.message_id, user)
     # 같은 사람이 같은 메시지에 같은 종류로 또 신고하면 새로 만들지 않고 기존 신고를 돌려준다
     await session.execute(
         insert(Report)
-        .values(message_id=body.message_id, user_id=user.id, type=body.type)
+        .values(message_id=body.message_id, user_id=user.id, type=body.type, text=message.text)
         .on_conflict_do_nothing()
     )
     await session.commit()
