@@ -10,6 +10,7 @@
 판단하고, 없으면 가려요.
 """
 
+import re
 from functools import cache
 
 from app.moderation import dict_filter, normalize
@@ -24,6 +25,11 @@ _BEFORE_NOUN_GAE = tuple("0123456789한두세네몇") + (
     "여러", "지우", "베", "날", "무지", "안", "조", "번", "덮", "마", "찌", "소", "공", "고", "대",
     "깔", "가리", "따", "쑤시", "냥", "돗", "전",
 )
+
+
+# 문장형 욕("너 임마 청년") 뒤에 이런 말이 이어지면 멀쩡한 글일 수 있어요:
+# "청년이 그러면 되냐", "청년 때 사진", "청년회". 그 밖에는("청년아", "청년이냐") 욕으로 봐요.
+_HONEST_TAIL = re.compile(r"(이|은|는|도|의|이랑|한테|에게)\s+[가-힣]|\s*(때|시절|회|들|부|기|층)")
 
 
 def _jamo(c: str) -> bool:
@@ -62,17 +68,20 @@ def default_hits(text: str) -> tuple[tuple[int, int, str, str], ...]:
     그래야 모델이 멀쩡한 문장을 풀어 줄 수 있어요. 낱말에 공백이 들어 있는 사전 항목
     ("꼬치 빨")은 그 자리의 공백까지는 이어진 거예요: "너임마 청년"은 "너임마 청년"에서는
     certain이고, "너 임마 청년이 그러면 되냐"에서는 띄어쓰기가 하나 더 있어서 ambiguous예요.
-    문장형 욕(badwords_phrase.txt)은 띄어 썼어도 글이 거기서 끝나면 certain이에요: "니 임마 청년"."""
+    문장형 욕(badwords_phrase.txt)은 띄어 썼어도 certain이에요 ("니 임마 청년아"). 뒤에 멀쩡한
+    글에서 오는 말이 이어질 때만 ambiguous예요 ("너 임마 청년이 그러면 되냐")."""
     norm, index_map, end_map = normalize.normalize_with_ends(text)
     out = []
     for s, e, word, kind in dict_filter.find_words(norm):
         start, end = index_map[s], end_map[e - 1]
         if kind == "certain" and len(text[start:end].split()) - 1 > word.count(" "):
-            # 문장형 욕은 띄어 썼어도 뒤에 말이 더 없으면 욕이에요: "니 임마 청년ㅋㅋ"
-            ends_here = not any("가" <= c <= "힣" for c in text[end:])
-            if not (word in dict_filter.PHRASES and ends_here):
+            if word not in dict_filter.PHRASES or _HONEST_TAIL.match(text, end):
                 kind = "ambiguous"
         out.append((start, end, word, kind))
+    # 다른 말 없이 쓴 비속어 ("자지", "보지 ㅋㅋ", "자지 보지"): 문장 안에서는 모델이 판단해요 ("보지 마")
+    words = list(re.finditer("[가-힣]+", norm))
+    if words and all(m.group() in dict_filter.ALONE for m in words):
+        out += [(index_map[m.start()], end_map[m.end() - 1], m.group(), "certain") for m in words]
     # 강조하려고 붙인 "개" ("개웃기네"): "개" 한 글자만 가려요. "개 좋아해?"처럼 띄어 쓴 것은
     # 동물일 수 있어서 모델이 판단해요.
     for s, e, word in dict_filter.find_intensifier(norm):

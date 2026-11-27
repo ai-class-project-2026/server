@@ -37,7 +37,7 @@ for ok in ("김치찌개맛있어", "3개많아", "소개잘해줘", "개구리 
 # "니 엄마 창년"을 소리만 바꿔 쓴 말: "너임마/니임마/니엄마"를 붙여 쓰고 바로 "청년"이 오면 가려요
 for bad in (
     "니임마 청년", "니임마청년", "너임마청년", "너임마 청년", "니엄마 청년", "야 니임마청년이냐 ㅋㅋ",
-    "니 임마 청년", "너 임마청년 ㅋㅋ", "야 니 엄마 청년!!",
+    "니 임마 청년", "너 임마청년 ㅋㅋ", "야 니 엄마 청년!!", "니 임마 청년아", "야 니 엄마 청년이냐", "니 엄마 청년 맞지",
 ):
     for level in (1, 2, 3):
         r = moderate(bad, level=level)
@@ -45,6 +45,18 @@ for bad in (
 # "너 임마"처럼 띄어 쓴 것은 멀쩡한 말일 수 있어서 모델이 판단해요 (모델이 없으면 가려요)
 if settings.moderation_onnx_path:
     for ok in ("너 임마 청년이 그러면 되냐", "니 임마 청년이 그라믄 되나", "니 엄마 청년 때 사진 봤어", "임마 청년이면 열심히 해야지"):
+        r = moderate(ok, level=3)
+        assert not r.is_profane, (ok, r)
+# 청소년이 쓰는 메신저라 빡빡하게 잡아요 (기획서 9.8): 모델이 놓치는 말을 사전이 잡아요
+for bad in ("엄창", "빨통 봐라", "ㅈㄲ", "개같네", "진짜 개같다", "자지", "보지 ㅋㅋ", "꼬추", "잠지?", "자지 보지"):
+    for level in (1, 2, 3):
+        r = moderate(bad, level=level)
+        assert r.is_profane and r.spans, (bad, level, r)
+for ok in ("엄창호 선수 경기 봤어?", "이빨통증 너무 심해", "물개같이 수영하네", "개같이 벌어서 정승같이 쓴다"):
+    r = moderate(ok, level=3)
+    assert not r.is_profane, (ok, r)
+if settings.moderation_onnx_path:
+    for ok in ("그 영화는 보지 마", "아직 자지 않고 뭐해", "개 같이 산책 갈래?", "번개같이 뛰어왔네", "무지개같이 알록달록한 색", "고추"):
         r = moderate(ok, level=3)
         assert not r.is_profane, (ok, r)
 print("ok")
