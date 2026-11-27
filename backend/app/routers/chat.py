@@ -159,7 +159,8 @@ async def _ws_auth(websocket: WebSocket, channel_id: int) -> tuple[int, float] |
             return None
         user_id, exp = auth.token_claims(first["token"])
         async with db.SessionLocal() as session:
-            user = await auth.user_from_token(first["token"], session)
+            if (user := await session.get(User, user_id)) is None:  # 토큰은 맞지만 지워진 계정
+                return None
             await get_owned(session, Channel, channel_id, user)  # 없는 채널/비멤버는 둘 다 실패
     except (
         TimeoutError,
