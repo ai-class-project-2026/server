@@ -48,6 +48,12 @@ def main():
     ap.add_argument("--context-boost", type=int, default=4, help="how many times rows with context appear in training")
     ap.add_argument("--seed", type=int, help="Trainer seed and model init (unset: Trainer seed 42, init not seeded)")
     ap.add_argument(
+        "--patience",
+        type=int,
+        help="stop when the validation loss has not improved for this many epochs (unset: run every epoch). "
+        "The schedule still counts --epochs, so the kept checkpoint is the same as a full run unless a later epoch would have won",
+    )
+    ap.add_argument(
         "--val-groups",
         type=Path,
         help="file with one group id per line: these groups are the validation side "
@@ -59,6 +65,7 @@ def main():
     from transformers import (
         AutoModelForSequenceClassification,
         AutoTokenizer,
+        EarlyStoppingCallback,
         Trainer,
         TrainingArguments,
         set_seed,
@@ -113,6 +120,8 @@ def main():
             fp16=True,
             seed=42 if args.seed is None else args.seed,
         ),
+        # v4, v5 여섯 번 모두 1에폭 체크포인트가 가장 좋았어요: 2에폭에서 나빠지면 3에폭은 돌리지 않아요
+        callbacks=[EarlyStoppingCallback(args.patience)] if args.patience else None,
     ).train()
     model.save_pretrained(args.out)
     tok.save_pretrained(args.out)
