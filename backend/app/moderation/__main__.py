@@ -75,4 +75,19 @@ if settings.moderation_onnx_path:  # 문장 안에서는 모델이 판단해요
     for ok in ("고추장 좀 사 와", "장애인 주차 구역에 대면 안 돼", "짐은 내가 싼다", "니 엄마가 데리러 오신대", "종이 찢기 놀이"):
         r = moderate(ok, level=3)
         assert not r.is_profane, (ok, r)
+# 멤버 이름에 붙여 쓴 말 (2026-11-27): 이름을 지운 글에서 혼자 쓴 말이면 가려요. 이름은 그대로 보여요
+names = ["강상우"]
+for bad, spans in (("강상우보지", [[3, 5]]), ("강상우찢기", [[3, 5]]), ("상우보지", [[2, 4]]), ("강상우 보지", [[4, 6]]), ("찢기", [[0, 2]])):
+    for level in (1, 2, 3):
+        r = moderate(bad, level=level, names=names)
+        assert r.is_profane and r.spans == spans, (bad, level, r)
+    assert moderate(bad, level=3, names=[]) == moderate(bad, level=3), bad  # 이름이 없으면 전과 같아요
+for ok in ("강상우 봤어?", "상우야 그거 보지 마", "강상우가 종이 찢기 시작했어", "강상우 화이팅", "강상우체국 갔어", "종이 찢기 놀이"):
+    r = moderate(ok, level=3, names=names)
+    assert not r.is_profane and r == moderate(ok, level=3), (ok, r)
+# 이름이 욕이어도 원문에서 걸린 곳은 그대로 가려요. 빈 이름, 기호가 든 이름, 한 글자 이름도 괜찮아요
+for weird in (["시발"], ["", " ", "a.*b", "(", "우"], ["상우", "강상우"], [f"멤버{i}" for i in range(200)]):
+    for text in ("시발", "야 시발 강상우"):
+        assert moderate(text, level=3, names=weird).spans == moderate(text, level=3).spans, (text, weird)
+assert moderate("a.*b보지", level=3, names=["a.*b"]).spans == [[4, 6]]
 print("ok")

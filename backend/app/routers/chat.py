@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from app import auth, moderation_client
 from app.auth import CurrentUser
 from app.db import session as db
-from app.db.models import Channel, Message, Report, User, Workspace
+from app.db.models import Channel, Member, Message, Report, User, Workspace
 from app.deps import Session, get_owned, require_member
 from app.realtime import Conn, hub
 from app.schedule import pipeline
@@ -109,8 +109,10 @@ async def send_message(
             .limit(3)
         )
     )[::-1]
+    # 멤버 이름에 붙여 쓴 욕("강상우보지")을 사전이 찾을 수 있게 이름을 같이 넘긴다
+    names = list(await session.scalars(select(User.name).join(Member).where(Member.workspace_id == ws.id)))
     # Moderate before saving (plan 10.1): 모델 서버가 있으면 거기서, 없거나 답이 없으면 이 서버 안에서.
-    res = await moderation_client.check(body.text, context, ws.filter_level)
+    res = await moderation_client.check(body.text, context, ws.filter_level, names)
     msg = Message(
         channel_id=channel_id,
         user_id=user_id,

@@ -65,7 +65,24 @@ def _seen_end(text: str, norm: str, context: list[str]) -> int:
         return 0
 
 
-def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationResult:
+def _without_names(text: str, names: list[str]) -> tuple[str, ...]:
+    """멤버 이름을 같은 길이의 공백으로 지운 글 (위치가 그대로라 가릴 곳이 맞아요). 이름이 없으면 ().
+    "강상우보지"는 한 낱말이라 혼자 쓴 말로 안 보여서 모델과 사전이 둘 다 놓쳐요. 세 글자 이름은
+    성을 빼고도 불러서 뒤 두 글자("상우")도 지워요. 긴 이름부터 지워요."""
+    keys = set()
+    for n in names:
+        n = n.strip()
+        if len(n) >= 2:
+            keys.add(n)
+            if len(n) == 3 and all(normalize.is_syllable(c) for c in n):
+                keys.add(n[1:])
+    found = sorted((n for n in keys if n in text), key=len, reverse=True)
+    for n in found:
+        text = text.replace(n, " " * len(n))
+    return (text,) if found else ()
+
+
+def moderate(text: str, context: list[str] = (), level: int = 2, names: list[str] = ()) -> ModerationResult:
     # 앞 메시지는 판정에 쓰지 않아요. 문맥 학습 데이터가 합성이라 모델이 "이런 분위기면 정상"이라는
     # 지름길을 배웠어요: "3시쯤?", "ㅇㅋ" 뒤의 "병신아"를 통과시키고, 욕 뒤의 "ㅋㅋ"를 가렸어요.
     # API 모양은 그대로 두고 값만 버려요. 사람 대화로 다시 학습하기 전에는 되살리지 않아요.
@@ -73,13 +90,16 @@ def moderate(text: str, context: list[str] = (), level: int = 2) -> ModerationRe
     # 기본 읽기: 복원 글자와 certain 단어는 여기서만 나와요.
     norm = normalize.normalize_with_ends(text)[0]
     certain, ambiguous = [], []
-    for s, e, _, kind in candidate.default_hits(text):
-        (certain if kind == "certain" else ambiguous).append((s, e))
-    # 후보 읽기: 공백/숫자/기호로 가린 철자를 사전에서 찾기만 해요. 여기서 걸린 곳은
-    # 모두 애매한 단어로 다뤄요. 이미 certain으로 가려진 곳 안은 건너뛰어요.
-    for s, e, _ in candidate.hits(text):
-        if not any(cs <= s and e <= ce for cs, ce in certain):
-            ambiguous.append((s, e))
+    # 멤버 이름을 지운 글도 사전으로 한 번 더 읽어서 걸린 곳을 더하기만 해요: 원문에서 걸린 곳은
+    # 이름 때문에 빠지지 않아요 ("시발"이라는 멤버가 있어도 "시발"은 가려요). 모델은 원문만 읽어요.
+    for reading in (text, *_without_names(text, names)):
+        for s, e, _, kind in candidate.default_hits(reading):
+            (certain if kind == "certain" else ambiguous).append((s, e))
+        # 후보 읽기: 공백/숫자/기호로 가린 철자를 사전에서 찾기만 해요. 여기서 걸린 곳은
+        # 모두 애매한 단어로 다뤄요. 이미 certain으로 가려진 곳 안은 건너뛰어요.
+        for s, e, _ in candidate.hits(reading):
+            if not any(cs <= s and e <= ce for cs, ce in certain):
+                ambiguous.append((s, e))
     restored = norm
     if certain and not ambiguous:  # certain 단어만: 모델 없이 바로 욕이에요
         return ModerationResult(True, 1.0, _spans(certain), restored, "dict")

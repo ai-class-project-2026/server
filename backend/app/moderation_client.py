@@ -24,12 +24,13 @@ def _http() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=settings.moderation_timeout, transport=_transport)
 
 
-async def check(text: str, context: list[str], level: int) -> ModerationResult:
+async def check(text: str, context: list[str], level: int, names: list[str] = ()) -> ModerationResult:
+    """names: 이 워크스페이스 멤버 이름. 이름에 붙여 쓴 욕("강상우보지")을 사전이 찾게 한다."""
     if settings.moderation_url:
         try:
             r = await _http().post(
                 settings.moderation_url.rstrip("/") + "/moderate",
-                json={"text": text, "context": context, "level": level},
+                json={"text": text, "context": context, "level": level, "names": list(names)},
                 headers={"X-API-Key": settings.moderation_api_key},
             )
             r.raise_for_status()
@@ -39,11 +40,12 @@ async def check(text: str, context: list[str], level: int) -> ModerationResult:
             log.warning("moderation server returned spans outside the text; judging locally")
         except (httpx.HTTPError, ValueError) as e:
             log.warning("moderation server failed (%s); judging locally", type(e).__name__)
-    return await run_in_threadpool(moderate, text, context, level)
+    return await run_in_threadpool(moderate, text, context, level, names)
 
 
 if __name__ == "__main__":  # PYTHONPATH=backend:ml/common python -m app.moderation_client
     import asyncio
+    import json
 
     local = asyncio.run(check("아 씨발", [], 2))  # 주소가 없으면 이 서버 안에서 판정
     assert local.is_profane and local.spans == [[2, 4]]
@@ -66,6 +68,11 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common python -m app.moderat
     got = asyncio.run(check("안녕", ["앞"], 3))
     assert got.model_version == "far" and got.spans == [[0, 2]] and seen["key"] == "k" and seen["path"] == "/moderate"
     assert b'"level":3' in seen["json"].replace(b" ", b"")
+    asyncio.run(check("안녕", [], 2, ["강상우"]))
+    assert json.loads(seen["json"])["names"] == ["강상우"]
+    settings.moderation_url = ""
+    assert asyncio.run(check("강상우보지", [], 2, ["강상우"])).spans == [[3, 5]]  # 이 서버 안에서도 이름을 쓴다
+    settings.moderation_url = "http://model.invalid/"
     for bad in (reply(far, 500), reply({"nope": 1}), reply({**far, "spans": [[0, 9]]}), reply(far, 401)):
         use(bad)  # 오류, 모양이 다른 답, 글 밖을 가리는 답, 키 거절 → 이 서버 안에서 판정
         assert asyncio.run(check("안녕", [], 2)).model_version != "far"
