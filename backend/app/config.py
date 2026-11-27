@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(min_length=32)
     jwt_expire_days: int = 7
     cors_origins: list[str] = ["http://localhost:3000"]
+    # 운영자 화면(/admin/...)을 볼 수 있는 계정 이메일. 예: ADMIN_EMAILS='["me@example.com"]'. 비우면 아무도 못 본다
+    admin_emails: list[str] = []
 
     # /moderate and /schedule: required X-API-Key when set (eval scripts, Discord bot)
     ai_api_key: str = ""

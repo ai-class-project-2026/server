@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import StatementError
 
 from app.config import settings
-from app.routers import ai, auth, calendar, chat, workspaces
+from app.routers import admin, ai, auth, calendar, chat, workspaces
 
 
 class _TooBig(BaseException):
@@ -61,7 +61,7 @@ app.add_middleware(  # 마지막에 추가한 것이 가장 바깥: 413 응답�
     allow_methods=["*"],
     allow_headers=["*"],
 )
-for r in (auth, workspaces, chat, calendar, ai):
+for r in (auth, workspaces, chat, calendar, ai, admin):
     app.include_router(r.router, prefix=settings.api_prefix)
 
 

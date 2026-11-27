@@ -144,6 +144,23 @@ class ReportIn(BaseModel):
     type: ReportType
 
 
+class AdminModerationItem(BaseModel):
+    """운영자 화면 한 줄: 가려졌거나 신고된 메시지 하나."""
+
+    id: int
+    created_at: dt.datetime
+    workspace_name: str
+    channel_name: str
+    user_name: str
+    text: str
+    is_profane: bool
+    profanity_score: float | None
+    profanity_spans: list[list[int]]
+    model_version: str | None
+    false_positive_reports: int  # "욕설 아님" 신고 수
+    missed_reports: int  # "욕설 신고" 수
+
+
 # --- calendar / todos ---
 
 
