@@ -1,10 +1,14 @@
 """운영자 화면: 가려진 메시지와 신고된 메시지를 모아 본다 (기획서 9.7 2번 "운영자 검수").
-여러 팀의 메시지가 보이는 곳이라 settings.admin_emails에 있는 계정만 연다."""
+여러 팀의 메시지가 보이는 곳이라 X-Admin-Password 헤더가 settings.admin_password와 같을 때만 연다."""
 
-from fastapi import APIRouter, HTTPException, Query, status
+import hmac
+import time
+from collections import deque
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from sqlalchemy import case, func, or_, select
 
-from app.auth import CurrentUser
 from app.config import settings
 from app.db.models import Channel, Message, Report, ReportType, User, Workspace
 from app.deps import Session
@@ -12,19 +16,35 @@ from app.schemas import AdminModerationItem
 
 router = APIRouter(tags=["admin"])
 
+# 비밀번호를 하나씩 넣어 보는 공격을 막는다: 최근 10분에 10번 틀리면 그동안은 맞는 비밀번호도 받지 않는다.
+# ponytail: 서버 전체에 한 줄(IP 구분 없음)이라 누가 일부러 틀리면 운영자도 10분 동안 못 들어온다. 문제가 되면 IP별로 센다
+MAX_FAILS, FAIL_WINDOW = 10, 600
+_fails: deque[float] = deque()
 
-def _require_admin(user: User) -> None:
-    # 운영자가 아니면 이런 주소가 있다는 것도 알리지 않게 404
-    if user.email.lower() not in {e.lower() for e in settings.admin_emails}:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+
+def _require_admin(password: str | None) -> None:
+    now = time.monotonic()
+    while _fails and now - _fails[0] > FAIL_WINDOW:
+        _fails.popleft()
+    if len(_fails) >= MAX_FAILS:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many wrong passwords")
+    # 401은 웹이 "로그인이 풀렸다"로 보고 로그아웃시키므로 403을 쓴다
+    ok = bool(settings.admin_password) and hmac.compare_digest(
+        (password or "").encode(), settings.admin_password.encode()
+    )
+    if not ok:
+        _fails.append(now)
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Wrong admin password")
 
 
 @router.get("/admin/moderation", response_model=list[AdminModerationItem])
 async def moderation_feed(
-    user: CurrentUser, session: Session, limit: int = Query(200, ge=1, le=500)
+    session: Session,
+    x_admin_password: Annotated[str | None, Header()] = None,
+    limit: int = Query(200, ge=1, le=500),
 ):
     """최근에 가려졌거나 신고된 메시지, 새것부터."""
-    _require_admin(user)
+    _require_admin(x_admin_password)
     count = lambda t: func.sum(case((Report.type == t, 1), else_=0))  # noqa: E731
     reports = (
         select(
