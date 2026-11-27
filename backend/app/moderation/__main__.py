@@ -56,7 +56,23 @@ for ok in ("엄창호 선수 경기 봤어?", "이빨통증 너무 심해", "물
     r = moderate(ok, level=3)
     assert not r.is_profane, (ok, r)
 if settings.moderation_onnx_path:
-    for ok in ("그 영화는 보지 마", "아직 자지 않고 뭐해", "개 같이 산책 갈래?", "번개같이 뛰어왔네", "무지개같이 알록달록한 색", "고추"):
+    for ok in ("그 영화는 보지 마", "아직 자지 않고 뭐해", "개 같이 산책 갈래?", "번개같이 뛰어왔네", "무지개같이 알록달록한 색"):
+        r = moderate(ok, level=3)
+        assert not r.is_profane, (ok, r)
+# 성적인 말, 고인 조롱·혐오 말투, 사람을 낮춰 부르는 말 (2026-11-27): 학습 데이터에 "욕 아님"으로 들어 있어 모델이 놓쳐요
+for bad in (
+    "나 똥구멍이 가려워", "야동 봤냐", "ㅇㅐ널", "젖꼭지 보인다", "가버렸! 싼다!!", "노무노무딱딱", "부엉이바위에서 셀카 한 장",
+    "이기야 북딱", "아이고 슨상님", "허버허버 먹네", "야 돼지야", "장애인이냐?", "리트냥이 개뒤졌노",
+    "고추", "앙앙", "찢", "니엄마", "장애인", "이기야 ㅋㅋ",
+):
+    for level in (1, 2, 3):
+        r = moderate(bad, level=level)
+        assert r.is_profane and r.spans, (bad, level, r)
+for ok in ("증권사 애널리스트가 꿈이야", "땅따먹기 하자", "돼지 야채 볶음 먹자", "그게 무슨 상관이야", "바보짓 그만해"):
+    r = moderate(ok, level=3)
+    assert not r.is_profane, (ok, r)
+if settings.moderation_onnx_path:  # 문장 안에서는 모델이 판단해요
+    for ok in ("고추장 좀 사 와", "장애인 주차 구역에 대면 안 돼", "짐은 내가 싼다", "니 엄마가 데리러 오신대", "종이 찢기 놀이"):
         r = moderate(ok, level=3)
         assert not r.is_profane, (ok, r)
 print("ok")
