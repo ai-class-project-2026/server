@@ -75,10 +75,8 @@ class Hub:
         members = await self._member_ids(channel_id)
         targets = []
         for c in conns:
-            if c.exp <= now:  # 토큰이 만료됨
-                self.discard(channel_id, c)
-                self._close_later(c, status.WS_1008_POLICY_VIOLATION)
-            elif members is not None and c.user_id not in members:  # 더는 멤버가 아님
+            # 토큰이 만료됐거나 더는 멤버가 아님
+            if c.exp <= now or (members is not None and c.user_id not in members):
                 self.discard(channel_id, c)
                 self._close_later(c, status.WS_1008_POLICY_VIOLATION)
             else:

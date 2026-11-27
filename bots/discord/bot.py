@@ -56,11 +56,6 @@ def clip(text: str, limit: int = LIMIT) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _str_or_none(v, name: str) -> None:
-    if v is not None and not isinstance(v, str):
-        raise ValueError(f"{name}는 문자열 또는 null")
-
-
 def check_events(res) -> list[dict]:
     """/schedule 응답이 약속한 모양인지 검사한다. 틀리면 ValueError (호출한 쪽이 짧은 답장으로 바꾼다)."""
     events = res.get("events") if isinstance(res, dict) else None
@@ -82,7 +77,8 @@ def check_events(res) -> list[dict]:
                 raise ValueError("start 형식이 틀림")
             dt.time.fromisoformat(e["start"])  # 범위가 틀리면 ValueError
         for name in ("time_text", "location", "note"):
-            _str_or_none(e.get(name), name)
+            if e.get(name) is not None and not isinstance(e[name], str):
+                raise ValueError(f"{name}는 문자열 또는 null")
         for name in ("attendees", "absent"):
             names = e.get(name) or []
             if not (isinstance(names, list) and all(isinstance(x, str) for x in names)):

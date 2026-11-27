@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import settings
-from app.moderation import candidate, classifier, dict_filter, normalize
+from app.moderation import candidate, classifier, normalize
 
 log = logging.getLogger(__name__)
 

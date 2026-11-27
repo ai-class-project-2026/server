@@ -6,7 +6,7 @@
              → 모델이 있으면 모델이 판단하고, 모델이 없으면 욕으로 봐요
 """
 
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 _here = Path(__file__).parent
@@ -70,26 +70,9 @@ def whitelisted(norm: str) -> list[tuple[int, int]]:
     ]
 
 
-def find(norm: str) -> list[tuple[int, int]]:
-    """정규화된 문장에서 certain 욕설의 위치. 화이트리스트 안에 있는 것은 빼요."""
-    return [(s, e) for s, e, _ in _find(norm, _BAD)]
-
-
-def find_ambiguous(norm: str) -> list[tuple[int, int]]:
-    """정규화된 문장에서 ambiguous 단어(멀쩡한 뜻도 있는 말)의 위치. 화이트리스트는 빼요."""
-    return [(s, e) for s, e, _ in _find(norm, _AMBIGUOUS)]
-
-
 def find_words(norm: str) -> list[tuple[int, int, str, str]]:
     """걸린 곳 전부: (시작, 끝, 단어, 종류). 후보 읽기가 단어까지 알아야 해서 따로 있어요."""
     return [(s, e, w, "certain") for s, e, w in _find(norm, _BAD)] + [
         (s, e, w, "ambiguous") for s, e, w in _find(norm, _AMBIGUOUS)
     ]
 
-
-def matches(norm: str) -> Counter:
-    """걸린 단어를 (단어, 종류)별로 센 것. 종류는 "certain" 또는 "ambiguous".
-    변형이 원문에 없던 욕을 새로 만들었는지 단어 하나하나 비교할 때 써요."""
-    hits = Counter((w, "certain") for _, _, w in _find(norm, _BAD))
-    hits.update((w, "ambiguous") for _, _, w in _find(norm, _AMBIGUOUS))
-    return hits

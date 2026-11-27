@@ -1,20 +1,16 @@
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import auth
 from app.auth import CurrentUser
 from app.db.models import User
-from app.db.session import get_session
+from app.deps import Session
 from app.schemas import LoginIn, SignupIn, TokenOut, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 # 없는 이메일도 똑같이 해시 검사를 하게 하려는 가짜 해시 (응답 시간으로 가입 여부를 알아내지 못하게)
 _DUMMY_HASH = auth.hash_password("dummy-password-for-timing")
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.post("/signup", response_model=TokenOut, status_code=201)

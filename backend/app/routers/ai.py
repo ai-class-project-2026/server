@@ -2,6 +2,7 @@
 flow calls the same functions in-process."""
 
 import secrets
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -39,13 +40,7 @@ router = APIRouter(tags=["ai"], dependencies=[Depends(_api_key)])
 @router.post("/moderate", response_model=ModerateResponse)
 async def moderate_api(body: ModerateRequest):
     r = await run_in_threadpool(moderate, body.text, body.context, body.level)
-    return ModerateResponse(
-        is_profane=r.is_profane,
-        score=r.score,
-        spans=r.spans,
-        restored=r.restored,
-        model_version=r.model_version,
-    )
+    return ModerateResponse(**asdict(r))
 
 
 @router.post("/schedule", response_model=ScheduleResponse)

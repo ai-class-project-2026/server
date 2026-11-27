@@ -71,16 +71,6 @@ _CLOCK = re.compile(
 )
 
 
-@dataclass
-class _Hit:
-    start: int
-    end: int
-    date: dt.date | None = None
-    time: dt.time | None = None
-    time_text: str | None = None
-    tentative: bool = False
-
-
 def _week_monday(day: dt.date) -> dt.date:
     return day - dt.timedelta(days=day.weekday())
 
@@ -139,7 +129,6 @@ def _wd_index(token: str) -> int:
 # 날짜 후보로만 알리고(tentative=True) 정말 요일인지는 대화를 보고 LLM이 정한다 (prompt.py의 "?" 표시).
 #  - 바로 뒤에 시각이 오면("목 7시") 요일로 본다 (tentative=False).
 #  - 낱말 속 글자("목도리", "수학", "금요")나 문법 구조("볼 수 있어", "할 일")는 후보에서 뺀다.
-_DAY = r"[월화수목금토일](?:요일|욜)?"
 _CLOCK_AFTER = re.compile(rf"\s*(?:에\s*)?(?:(?:오전|오후|아침|저녁|밤|새벽|낮)\s*)?\d{{1,2}}\s*시(?!간){_SI_END}")
 # 조사가 바로 붙고 띄어쓰기 없이 말이 이어지는 꼴("목에보자", "월은안돼")만 후보로 본다. "목도리"의 "도"는 여기에 없다
 _ATTACHED = re.compile(r"(?:에는|으로|로|에|엔|은|는)(?=[가-힣])")
@@ -173,11 +162,11 @@ def _bare_kind(text: str, start: int, end: int) -> str | None:
     return "explicit" if _CLOCK_AFTER.match(after) else "tentative"
 
 
-def _resolve(hits: list[_Hit]) -> list[_Hit]:
+def _resolve(hits: list[Mention]) -> list[Mention]:
     """겹치면 더 긴 표현을 남긴다. '다음주 화'가 '화'를 삼키지 않게.
     시작 위치순으로 한 번만 훑는다: 남긴 것들은 서로 안 겹치니 마지막 끝 위치만 보면 된다."""
     ordered = sorted(hits, key=lambda h: (h.start, -(h.end - h.start)))
-    chosen: list[_Hit] = []
+    chosen: list[Mention] = []
     last_end = 0
     for hit in ordered:
         if hit.end <= hit.start or hit.start < last_end:
@@ -191,11 +180,11 @@ def _resolve(hits: list[_Hit]) -> list[_Hit]:
 _APPOSED = re.compile(r"이?\s*(?:[(（]\s*)?")
 
 
-def _drop_apposed(text: str, hits: list[_Hit]) -> list[_Hit]:
+def _drop_apposed(text: str, hits: list[Mention]) -> list[Mention]:
     """앞 날짜의 요일을 다시 말했을 뿐인 요일은 뺀다. 안 그러면 "10/15 목요일"이 10/15와 10/1 두 날짜가 된다.
     요일이 다르면 어느 쪽이 맞는지 모르니 둘 다 알린다. 요일이 앞에 오면("목요일 다음주 목요일 중에",
     "수요일 오늘 중에") 다른 날을 나란히 말한 것일 수 있어서 빼지 않는다."""
-    out: list[_Hit] = []
+    out: list[Mention] = []
     for hit in hits:
         prev = out[-1] if out else None
         if not (
@@ -207,8 +196,8 @@ def _drop_apposed(text: str, hits: list[_Hit]) -> list[_Hit]:
     return out
 
 
-def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
-    hits: list[_Hit] = []
+def _date_atoms(text: str, ref: dt.date) -> list[Mention]:
+    hits: list[Mention] = []
     for match in _WEEK.finditer(text):
         wd = _wd_index(match.group("wd"))
         prefix = match.group("prefix")
@@ -216,19 +205,19 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
             found = _nearest(ref, wd)
         else:
             found = _nth_week(ref, _WEEKS[prefix], wd)
-        hits.append(_Hit(match.start(), match.end(), date=found))
+        hits.append(Mention(match.start(), match.end(), date=found))
     for match in _WEEKEND.finditer(text):
         weeks = _WEEKS.get(match.group("prefix"), 0)
-        hits.append(_Hit(match.start(), match.end(), date=_weekend(ref, weeks)))
+        hits.append(Mention(match.start(), match.end(), date=_weekend(ref, weeks)))
     for pattern in (_MD_KO, _MD):
         for match in pattern.finditer(text):
             found = _abs_date(ref, int(match.group("month")), int(match.group("day")))
             # 없는 날짜(2월 30일)도 자리는 차지한다. 안 그러면 "월", "일"이 요일로 읽힌다.
-            hits.append(_Hit(match.start(), match.end(), date=found))
+            hits.append(Mention(match.start(), match.end(), date=found))
     for match in _REL_WORD.finditer(text):
         found = ref + dt.timedelta(days=_REL[match.group("word")])
         # "낼"은 "내일"의 줄임말이지만 "화 낼 일"처럼 "내다"의 활용형도 되므로 후보로만 알린다
-        hits.append(_Hit(match.start(), match.end(), date=found, tentative=match.group("word") == "낼"))
+        hits.append(Mention(match.start(), match.end(), date=found, tentative=match.group("word") == "낼"))
     for match in _BARE_WD.finditer(text):
         kind = _bare_kind(text, match.start(), match.end())
         if kind is None:
@@ -237,16 +226,16 @@ def _date_atoms(text: str, ref: dt.date) -> list[_Hit]:
         if re.search(r"그\s*(?:전주|다음주)\s*$", text[: match.start()]):
             continue
         found = _upcoming(ref, _wd_index(match.group("wd")))
-        hits.append(_Hit(match.start(), match.end(), date=found, tentative=kind == "tentative"))
+        hits.append(Mention(match.start(), match.end(), date=found, tentative=kind == "tentative"))
     return _drop_apposed(text, _resolve(hits))
 
 
-def _shifts(text: str, ref: dt.date, atoms: list[_Hit]) -> list[_Hit]:
+def _shifts(text: str, ref: dt.date, atoms: list[Mention]) -> list[Mention]:
     """'10/15의 그 전주 목요일', '그 전주 목요일'. 앞 결과를 다시 앞 날짜로 써서 왼쪽부터 이어 계산한다
     ('10/15의 그 전주 목요일의 그 다음주 화요일' = 10/8의 다음주 화요일 = 10/13)."""
     # 없는 날짜(2월 30일)도 후보에 넣는다. 가장 가까운 날짜 모양이 없는 날짜면 그 뒤 표현은 계산하지 않는다
     # (더 앞의 멀쩡한 날짜를 대신 쓰면 엉뚱한 날짜가 나온다)
-    anchors = [_Hit(a.start, a.end, date=a.date, tentative=a.tentative) for a in atoms]
+    anchors = [Mention(a.start, a.end, date=a.date, tentative=a.tentative) for a in atoms]
     ends = [a.end for a in anchors]
     moved: set[int] = set()
     for match in _SHIFT_TAIL.finditer(text):
@@ -272,7 +261,7 @@ def _shifts(text: str, ref: dt.date, atoms: list[_Hit]) -> list[_Hit]:
         if text[: match.start()].rstrip().endswith("의"):
             continue
         found = _shift(ref, match.group("which"), _wd_index(match.group("wd")))
-        hits.append(_Hit(match.start(), match.end(), date=found))
+        hits.append(Mention(match.start(), match.end(), date=found))
     return hits
 
 
@@ -303,16 +292,10 @@ def _clock(hour: int, minute: int, hint: str | None) -> dt.time | None:
     return dt.time(hour, minute)
 
 
-def _clock_hits(text: str) -> list[_Hit]:
-    hits: list[_Hit] = []
+def _clock_hits(text: str) -> list[Mention]:
+    hits: list[Mention] = []
     for phrase in _TIME_TEXTS:
-        start = 0
-        while True:
-            found = text.find(phrase, start)
-            if found < 0:
-                break
-            hits.append(_Hit(found, found + len(phrase), time_text=phrase))
-            start = found + len(phrase)
+        hits += [Mention(m.start(), m.end(), time_text=phrase) for m in re.finditer(re.escape(phrase), text)]
     for match in _CLOCK.finditer(text):
         raw = match.group(0).lstrip()
         start = match.end() - len(raw)
@@ -329,7 +312,7 @@ def _clock_hits(text: str) -> list[_Hit]:
         if resolved is None and not ambiguous:
             continue
         hits.append(
-            _Hit(
+            Mention(
                 start,
                 match.end(),
                 time=resolved,
@@ -343,8 +326,4 @@ def parse(text: str, ref: dt.date) -> list[Mention]:
     """Find date/time expressions in one message, relative to `ref` (message day)."""
     atoms = _date_atoms(text, ref)
     hits = _resolve([*_shifts(text, ref, atoms), *atoms, *_clock_hits(text)])
-    return [
-        Mention(hit.start, hit.end, date=hit.date, time=hit.time, time_text=hit.time_text, tentative=hit.tentative)
-        for hit in hits
-        if hit.date or hit.time or hit.time_text  # 없는 날짜의 자리 표시는 내보내지 않는다
-    ]
+    return [hit for hit in hits if hit.date or hit.time or hit.time_text]  # 없는 날짜의 자리 표시는 내보내지 않는다
