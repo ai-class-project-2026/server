@@ -193,7 +193,8 @@ def main():
     cards, out = PLACES.get(args.card_id[:1], PLACES["R"])
     args.cards, args.out = args.cards or cards, args.out or out
 
-    cards = {c["card_id"]: c for c in map(json.loads, Path(args.cards).read_text(encoding="utf-8").splitlines())}
+    lines = Path(args.cards).read_text(encoding="utf-8").splitlines()
+    cards = {c["card_id"]: c for c in map(json.loads, filter(str.strip, lines))}  # 빈 줄은 건너뛴다
     card = cards.get(args.card_id)
     if card is None:
         sys.exit(f"카드 {args.card_id}가 {args.cards}에 없다")
