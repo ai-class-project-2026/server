@@ -50,8 +50,15 @@ def main():
     ap.add_argument(
         "--patience",
         type=int,
-        help="stop when the validation loss has not improved for this many epochs (unset: run every epoch). "
-        "The schedule still counts --epochs, so the kept checkpoint is the same as a full run unless a later epoch would have won",
+        help="stop when the validation loss has not improved for this many validations (unset: run every epoch). "
+        "The schedule still counts --epochs, so the kept checkpoint is the same as a full run unless a later one would have won",
+    )
+    ap.add_argument("--lr", type=float, default=3e-5)
+    ap.add_argument(
+        "--evals-per-epoch",
+        type=int,
+        default=1,
+        help="validate and save this many times per epoch, so the best point between epochs can be kept",
     )
     ap.add_argument(
         "--val-groups",
@@ -104,6 +111,11 @@ def main():
     if args.seed is not None:
         set_seed(args.seed)  # the classifier head is made here, before Trainer seeds anything
     model = AutoModelForSequenceClassification.from_pretrained(args.base, num_labels=2)
+    when = {"eval_strategy": "epoch", "save_strategy": "epoch"}
+    if args.evals_per_epoch > 1:
+        steps = -(-len(train_rows) // 32) // args.evals_per_epoch
+        # 체크포인트 하나가 1.5GB쯤이라 가장 좋은 것과 마지막 것만 남겨요
+        when = {"eval_strategy": "steps", "save_strategy": "steps", "eval_steps": steps, "save_steps": steps, "save_total_limit": 2}
     Trainer(
         model=model,
         processing_class=tok,
@@ -113,9 +125,8 @@ def main():
             output_dir=args.out,
             num_train_epochs=args.epochs,
             per_device_train_batch_size=32,
-            learning_rate=3e-5,
-            eval_strategy="epoch",
-            save_strategy="epoch",
+            learning_rate=args.lr,
+            **when,
             load_best_model_at_end=True,
             fp16=True,
             seed=42 if args.seed is None else args.seed,
