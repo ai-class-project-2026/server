@@ -1,8 +1,7 @@
 # one word per line, normalized form (part 3 grows this)
 # normalize() already undoes digits/symbols/spaces/jamo/keyboard/stretching,
 # so list only real spellings + sound-alikes. 이 파일에는 어떤 문장에서도 욕인
-# 말만 넣어요. 멀쩡한 뜻도 있는 말(새끼, 꺼져)은 badwords_ambiguous.txt에,
-# 문장을 봐야 아는 말("너임마청년")은 어느 목록에도 넣지 않아요 (기획서 9.8).
+# 말만 넣어요. 멀쩡한 뜻도 있는 말(새끼, 꺼져)은 badwords_ambiguous.txt에 넣어요.
 # Left out on purpose (too many normal uses, the model handles them):
 # 미친, 미쳤, 쓰레기, 염병, 뒤져, 좇, 엿먹, 호로, 닥치, 한심, 멍청
 

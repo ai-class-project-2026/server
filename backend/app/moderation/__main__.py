@@ -1,6 +1,7 @@
 """화이트리스트 확인: PYTHONPATH=backend:ml/common python -m app.moderation
 MODERATION_ONNX_PATH를 주면 모델까지 넣고 확인해요 (모델이 붙여 읽은 글에 속지 않는지)."""
 
+from app.config import settings
 from app.moderation import moderate
 
 # "씨 발아"(씨가 싹트다)는 띄어쓰기를 지우면 "씨발아"가 되지만 욕이 아니에요
@@ -33,4 +34,17 @@ for bad, spans in (
 for ok in ("김치찌개맛있어", "3개많아", "소개잘해줘", "개구리 귀엽다", "조직 개편해야 함", "개별로 연락할게", "개싸움 났대", "전개빨라서 좋은데", "나라망신 개망신"):
     r = moderate(ok, level=3)
     assert not r.is_profane, (ok, r)
+# "니 엄마 창년"을 소리만 바꿔 쓴 말: "너임마/니임마/니엄마"를 붙여 쓰고 바로 "청년"이 오면 가려요
+for bad in (
+    "니임마 청년", "니임마청년", "너임마청년", "너임마 청년", "니엄마 청년", "야 니임마청년이냐 ㅋㅋ",
+    "니 임마 청년", "너 임마청년 ㅋㅋ", "야 니 엄마 청년!!",
+):
+    for level in (1, 2, 3):
+        r = moderate(bad, level=level)
+        assert r.is_profane and r.spans, (bad, level, r)
+# "너 임마"처럼 띄어 쓴 것은 멀쩡한 말일 수 있어서 모델이 판단해요 (모델이 없으면 가려요)
+if settings.moderation_onnx_path:
+    for ok in ("너 임마 청년이 그러면 되냐", "니 임마 청년이 그라믄 되나", "니 엄마 청년 때 사진 봤어", "임마 청년이면 열심히 해야지"):
+        r = moderate(ok, level=3)
+        assert not r.is_profane, (ok, r)
 print("ok")

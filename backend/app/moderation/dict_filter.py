@@ -1,7 +1,7 @@
 """Step ② + ④ of plan 9.2: dictionary hits minus whitelist ("시발점").
 
 단어 목록은 두 가지예요 (기획서 9.8):
-  certain    어떤 문장에서도 욕인 말 (badwords.txt, badwords_soundalike.txt)
+  certain    어떤 문장에서도 욕인 말 (badwords.txt, badwords_soundalike.txt, badwords_phrase.txt)
   ambiguous  멀쩡한 뜻도 있는 말 (badwords_ambiguous.txt, badwords_soundalike_ambiguous.txt)
              → 모델이 있으면 모델이 판단하고, 모델이 없으면 욕으로 봐요
 강조하려고 붙인 "개"("개웃기네")는 badwords_intensifier.txt에 따로 있어요: "개" 한 글자만 가려요.
@@ -17,7 +17,9 @@ _load = lambda name: [  # one word per line; "#" to end of line is a comment
     if (w := line.split("#")[0].strip())
 ]
 # badwords_soundalike*.txt는 ml/moderation/gen_soundalike.py가 만들어요
-BAD = list(dict.fromkeys(_load("badwords.txt") + _load("badwords_soundalike.txt")))
+# 소리만 바꿔 쓴 문장형 욕 ("너임마 청년"): 띄어 썼어도 글이 거기서 끝나면 욕이에요
+PHRASES = _load("badwords_phrase.txt")
+BAD = list(dict.fromkeys(_load("badwords.txt") + _load("badwords_soundalike.txt") + PHRASES))
 _amb = _load("badwords_ambiguous.txt") + _load("badwords_soundalike_ambiguous.txt")
 AMBIGUOUS = [w for w in dict.fromkeys(_amb) if w not in BAD]  # 두 곳에 있으면 certain이 이겨요
 WHITE = _load("whitelist.txt")

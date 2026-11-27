@@ -60,13 +60,18 @@ def default_hits(text: str) -> tuple[tuple[int, int, str, str], ...]:
     certain은 욕이 원문에서 이어져 있을 때만이에요 (사이의 기호는 괜찮아요: "씨@발").
     "수박 씨 발아율"처럼 띄어쓰기를 지워서 생긴 "씨발"은 certain이 아니라 ambiguous예요.
     그래야 모델이 멀쩡한 문장을 풀어 줄 수 있어요. 낱말에 공백이 들어 있는 사전 항목
-    ("꼬치 빨")은 공백이 있어도 이어진 거예요."""
+    ("꼬치 빨")은 그 자리의 공백까지는 이어진 거예요: "너임마 청년"은 "너임마 청년"에서는
+    certain이고, "너 임마 청년이 그러면 되냐"에서는 띄어쓰기가 하나 더 있어서 ambiguous예요.
+    문장형 욕(badwords_phrase.txt)은 띄어 썼어도 글이 거기서 끝나면 certain이에요: "니 임마 청년"."""
     norm, index_map, end_map = normalize.normalize_with_ends(text)
     out = []
     for s, e, word, kind in dict_filter.find_words(norm):
         start, end = index_map[s], end_map[e - 1]
-        if kind == "certain" and " " not in word and any(c.isspace() for c in text[start:end]):
-            kind = "ambiguous"
+        if kind == "certain" and len(text[start:end].split()) - 1 > word.count(" "):
+            # 문장형 욕은 띄어 썼어도 뒤에 말이 더 없으면 욕이에요: "니 임마 청년ㅋㅋ"
+            ends_here = not any("가" <= c <= "힣" for c in text[end:])
+            if not (word in dict_filter.PHRASES and ends_here):
+                kind = "ambiguous"
         out.append((start, end, word, kind))
     # 강조하려고 붙인 "개" ("개웃기네"): "개" 한 글자만 가려요. "개 좋아해?"처럼 띄어 쓴 것은
     # 동물일 수 있어서 모델이 판단해요.
