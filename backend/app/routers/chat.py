@@ -168,6 +168,7 @@ async def _ws_auth(websocket: WebSocket, channel_id: int) -> tuple[int, float] |
         KeyError,
         TypeError,
         ValueError,  # JSON 오류도 여기 포함
+        OverflowError,  # 2^63 이상의 채널 번호·사용자 번호는 SQLite가 못 받는다 (HTTP는 main.py가 422로 바꾼다)
     ):
         return None
     return user_id, exp
