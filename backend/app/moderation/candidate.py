@@ -18,6 +18,14 @@ from app.moderation import dict_filter, normalize
 _READINGS = [(False, False), (True, False), (False, True), (True, True)]
 
 
+# 낱말 끝의 "개" 앞에 오는 글자: "찌개맛있다", "3개많아", "소개잘해줘"의 "개"는 강조가 아니에요.
+# ponytail: 자주 쓰는 낱말만 적은 목록이에요. 멀쩡한 말이 가려지면 여기에 앞 글자를 더해요.
+_BEFORE_NOUN_GAE = tuple("0123456789한두세네몇") + (
+    "여러", "지우", "베", "날", "무지", "안", "조", "번", "덮", "마", "찌", "소", "공", "고", "대",
+    "깔", "가리", "따", "쑤시", "냥", "돗", "전",
+)
+
+
 def _jamo(c: str) -> bool:
     return "ㄱ" <= c <= "ㅣ"
 
@@ -60,6 +68,15 @@ def default_hits(text: str) -> tuple[tuple[int, int, str, str], ...]:
         if kind == "certain" and " " not in word and any(c.isspace() for c in text[start:end]):
             kind = "ambiguous"
         out.append((start, end, word, kind))
+    # 강조하려고 붙인 "개" ("개웃기네"): "개" 한 글자만 가려요. "개 좋아해?"처럼 띄어 쓴 것은
+    # 동물일 수 있어서 모델이 판단해요.
+    for s, e, word in dict_filter.find_intensifier(norm):
+        start, end = index_map[s], end_map[e - 1]
+        head = text[:start]
+        if head.endswith(_BEFORE_NOUN_GAE) and not head.endswith("완전"):  # "전개빨라서" / "완전개웃겨"
+            continue
+        kind = "ambiguous" if any(c.isspace() for c in text[start:end]) else "certain"
+        out.append((start, end_map[s], word, kind))
     return tuple(out)
 
 

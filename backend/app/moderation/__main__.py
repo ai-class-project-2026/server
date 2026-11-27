@@ -18,4 +18,19 @@ for ok in (
 for bad, spans in (("야 이 씨 발아", [[4, 7]]), ("씨 발 아 짜증나", [[0, 3]]), ("아 씨발아 진짜", [[2, 4]])):
     r = moderate(bad, level=3)
     assert r.is_profane and r.spans == spans, (bad, r)
+# 강조하려고 붙인 "개"는 "개"만 가려요. 낱말 끝의 "개"(찌개, 3개)와 다른 낱말(개구리, 개편)은 그대로 둬요
+for bad, spans in (
+    ("개웃기네", [[0, 1]]),
+    ("진짜 개좋아", [[3, 4]]),
+    ("완전개맛있어", [[2, 3]]),
+    ("전개 개빠르고 개꿀잼", [[3, 4], [8, 9]]),
+    ("ㅋㅋ개웃겨", [[2, 3]]),
+    ("개웃긴데 개짜증남", [[0, 1], [5, 6]]),
+):
+    for level in (1, 2, 3):
+        r = moderate(bad, level=level)
+        assert r.is_profane and r.spans == spans, (bad, level, r)
+for ok in ("김치찌개맛있어", "3개많아", "소개잘해줘", "개구리 귀엽다", "조직 개편해야 함", "개별로 연락할게", "개싸움 났대", "전개빨라서 좋은데", "나라망신 개망신"):
+    r = moderate(ok, level=3)
+    assert not r.is_profane, (ok, r)
 print("ok")

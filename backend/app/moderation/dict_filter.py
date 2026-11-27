@@ -4,6 +4,7 @@
   certain    어떤 문장에서도 욕인 말 (badwords.txt, badwords_soundalike.txt)
   ambiguous  멀쩡한 뜻도 있는 말 (badwords_ambiguous.txt, badwords_soundalike_ambiguous.txt)
              → 모델이 있으면 모델이 판단하고, 모델이 없으면 욕으로 봐요
+강조하려고 붙인 "개"("개웃기네")는 badwords_intensifier.txt에 따로 있어요: "개" 한 글자만 가려요.
 """
 
 from collections import defaultdict
@@ -20,6 +21,8 @@ BAD = list(dict.fromkeys(_load("badwords.txt") + _load("badwords_soundalike.txt"
 _amb = _load("badwords_ambiguous.txt") + _load("badwords_soundalike_ambiguous.txt")
 AMBIGUOUS = [w for w in dict.fromkeys(_amb) if w not in BAD]  # 두 곳에 있으면 certain이 이겨요
 WHITE = _load("whitelist.txt")
+# 강조하려고 붙인 "개" ("개웃기네"): 뒤에 오는 말까지 맞아야 걸려요
+INTENSIFIER = ["개" + w for w in _load("badwords_intensifier.txt")]
 
 
 def _by_first_char(words: list[str]) -> dict[str, list[str]]:
@@ -34,6 +37,7 @@ def _by_first_char(words: list[str]) -> dict[str, list[str]]:
 _BAD = _by_first_char(BAD)
 _AMBIGUOUS = _by_first_char(AMBIGUOUS)
 _WHITE = _by_first_char(WHITE)
+_INTENSIFIER = _by_first_char(INTENSIFIER)
 
 
 def _find_all(text: str, word: str):
@@ -68,6 +72,11 @@ def whitelisted(norm: str) -> list[tuple[int, int]]:
         for s, e, _ in _scan(norm, groups)
         if any(a <= s and e <= b for a, b, _ in allowed)
     ]
+
+
+def find_intensifier(norm: str) -> list[tuple[int, int, str]]:
+    """강조하려고 붙인 "개"와 뒤에 오는 말: (시작, 끝, 단어). 가릴 곳은 맨 앞의 "개" 한 글자예요."""
+    return _find(norm, _INTENSIFIER)
 
 
 def find_words(norm: str) -> list[tuple[int, int, str, str]]:
