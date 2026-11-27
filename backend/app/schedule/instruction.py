@@ -316,7 +316,8 @@ def rules(text: str, members: list[str], today: dt.date, ev: ScheduleEvent | Non
 
     rest = "".join(" " if inside(i, i + 1) else ch for i, ch in enumerate(text))
     if ev is None and "title" not in out and not out.get("cancel"):
-        words = [w for w in rest.split() if w not in _FILLER and not re.fullmatch(r"[,.!?~]+", w)]
+        # ㅋㅋ·ㅎㅎ·ㅠㅠ처럼 자음·모음만 있는 낱말은 제목이 아니다 ("ㅋㅋㅋ"만 보내면 초안을 만들지 않는다)
+        words = [w for w in rest.split() if w not in _FILLER and not re.fullmatch(r"[,.!?~ㄱ-ㅎㅏ-ㅣ]+", w)]
         while words and words[0] in _PARTICLES:
             words.pop(0)
         while words and words[-1] in _PARTICLES | _FILLER:
@@ -362,6 +363,8 @@ if __name__ == "__main__":  # PYTHONPATH=backend:ml/common uv run python -m app.
         assert rules(chat, members, today, card) == {}, chat
     assert rules("장소는 도서관으로 ㅋㅋㅋㅋㅋㅋㅋㅋ 진짜 웃기다 ㅋㅋㅋ", members, today, card) == {"location": "도서관"}
     assert rules("장소는 도서관으로 ㅋㅋㅋ", members, today) == {"location": "도서관"}  # 웃음은 제목도 아니다
+    assert rules("ㅋㅋㅋ", members, today) == {} and rules("ㅠㅠ ㅎㅎ~", members, today) == {}  # 추가 창에서도 웃음만으로는 초안이 없다
+    assert rules("내일 7시 팀 회의 ㅋㅋ", members, today) == {"date": dt.date(2026, 11, 27), "start": dt.time(19), "title": "팀 회의"}
     assert rules("장소는 어딘가", members, today, card) == {}
     assert rules("장소는 도서관 8시로", members, today, card) == {"location": "도서관", "time_text": "8시"}  # 장소 뒤의 시각도 읽는다
     assert rules("토욜로 미루자", members, today, card) == {"date": dt.date(2026, 11, 28)}
